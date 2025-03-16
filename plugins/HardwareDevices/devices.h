@@ -28,6 +28,8 @@
 #define SETTING_NAME_SMART_COUNTERS_COLUMNS (PLUGIN_NAME L".SmartListColumns")
 #define SETTING_NAME_RAPL_LIST (PLUGIN_NAME L".RaplList")
 #define SETTING_NAME_GRAPHICS_LIST (PLUGIN_NAME L".GraphicsList")
+#define SETTING_NAME_GRAPHICS_DETAILS_WINDOW_POSITION (PLUGIN_NAME L".GraphicsDetailsWindowPosition")
+#define SETTING_NAME_GRAPHICS_DETAILS_WINDOW_SIZE (PLUGIN_NAME L".GraphicsDetailsWindowSize")
 #define SETTING_NAME_GRAPHICS_NODES_WINDOW_POSITION (PLUGIN_NAME L".GraphicsNodesWindowPosition")
 #define SETTING_NAME_GRAPHICS_NODES_WINDOW_SIZE (PLUGIN_NAME L".GraphicsNodesWindowSize")
 #define SETTING_NAME_GRAPHICS_UNIQUE_INDICES (PLUGIN_NAME L".GraphicsUniqueIndices")
@@ -59,11 +61,12 @@
 #include <phdk.h>
 #include <phappresource.h>
 #include <settings.h>
+#include <searchbox.h>
 #include <workqueue.h>
 #include <mapldr.h>
 
-#include <math.h>
 #include <cfgmgr32.h>
+#include <nvme.h>
 
 #include <phnet.h>
 
@@ -92,6 +95,7 @@ __has_include (<d3dkmthk.h>)
 extern PPH_PLUGIN PluginInstance;
 extern BOOLEAN NetAdapterEnableNdis;
 extern ULONG NetWindowsVersion;
+extern ULONG NetUpdateInterval;
 
 extern PPH_OBJECT_TYPE NetworkDeviceEntryType;
 extern PPH_LIST NetworkDevicesList;
@@ -288,6 +292,7 @@ typedef struct _DV_NETADAPTER_CONTEXT
     };
 
     PH_LAYOUT_MANAGER LayoutManager;
+    IListView* ListViewClass;
 } DV_NETADAPTER_CONTEXT, *PDV_NETADAPTER_CONTEXT;
 
 VOID NetAdaptersLoadList(
@@ -301,7 +306,7 @@ VOID NetworkDevicesInitialize(
     );
 
 VOID NetworkDevicesUpdate(
-    VOID
+    _In_ ULONG RunCount
     );
 
 VOID NetworkDeviceUpdateDeviceInfo(
@@ -599,7 +604,7 @@ typedef struct _DV_DISK_OPTIONS_CONTEXT
 
 VOID DiskDevicesInitialize(VOID);
 VOID DiskDrivesLoadList(VOID);
-VOID DiskDevicesUpdate(VOID);
+VOID DiskDevicesUpdate(_In_ ULONG RunCount);
 
 VOID DiskDeviceUpdateDeviceInfo(
     _In_opt_ HANDLE DeviceHandle,
@@ -838,6 +843,11 @@ NTSTATUS DiskDriveQueryImminentFailure(
     _Out_ PPH_LIST* DiskSmartAttributes
     );
 
+NTSTATUS DiskDriveQueryNvmeHealthInfo(
+    _In_ HANDLE DeviceHandle,
+    _Out_ PNVME_HEALTH_INFO_LOG HealthInfo
+    );
+
 typedef DECLSPEC_ALIGN(64) struct _NTFS_FILESYSTEM_STATISTICS
 {
     FILESYSTEM_STATISTICS FileSystemStatistics;
@@ -917,7 +927,7 @@ NTSTATUS DiskDriveQueryUniqueId(
     _Out_ PPH_STRING* PartitionId
     );
 
-// https://en.wikipedia.org/wiki/S.M.A.R.T.#Known_ATA_S.M.A.R.T._attributes
+// https://en.wikipedia.org/wiki/Self-Monitoring,_Analysis_and_Reporting_Technology#Known_ATA_S.M.A.R.T._attributes
 typedef enum _SMART_ATTRIBUTE_ID
 {
     SMART_ATTRIBUTE_ID_READ_ERROR_RATE = 0x01,
@@ -933,16 +943,24 @@ typedef enum _SMART_ATTRIBUTE_ID
     SMART_ATTRIBUTE_ID_CALIBRATION_RETRY_COUNT = 0x0B,
     SMART_ATTRIBUTE_ID_POWER_CYCLE_COUNT = 0x0C,
     SMART_ATTRIBUTE_ID_SOFT_READ_ERROR_RATE = 0x0D,
-    // TODO: Add values 14-170
+    // TODO: Add values 14-21
+    SMART_ATTRIBUTE_ID_CURRENT_HELIUM_LEVEL = 0x16,
+    SMART_ATTRIBUTE_ID_HELIUM_CONDITION_LOWER = 0x17,
+    SMART_ATTRIBUTE_ID_HELIUM_CONDITION_UPPER = 0x18,
+    // TODO: Add values 25-169
+    SMART_ATTRIBUTE_ID_AVAILABLE_RESERVED_SPACE = 0xAA,
     SMART_ATTRIBUTE_ID_SSD_PROGRAM_FAIL_COUNT = 0xAB,
     SMART_ATTRIBUTE_ID_SSD_ERASE_FAIL_COUNT = 0xAC,
     SMART_ATTRIBUTE_ID_SSD_WEAR_LEVELING_COUNT = 0xAD,
     SMART_ATTRIBUTE_ID_UNEXPECTED_POWER_LOSS = 0xAE,
-    // TODO: Add values 175-176
+    SMART_ATTRIBUTE_ID_POWER_LOSS_PROTECTION_FAILURE = 0xAF,
+    SMART_ATTRIBUTE_ID_ERASE_FAIL_COUNT = 0xB0,
     SMART_ATTRIBUTE_ID_WEAR_RANGE_DELTA = 0xB1,
-    // TODO: Add values 178-180
+    SMART_ATTRIBUTE_ID_USED_RESERVED_BLOCK_COUNT = 0xB2,
+    SMART_ATTRIBUTE_ID_USED_RESERVED_BLOCK_TOTAL = 0xB3,
+    SMART_ATTRIBUTE_ID_UNUSED_RESERVED_BLOCK_TOTAL = 0xB4,
     SMART_ATTRIBUTE_ID_SSD_PROGRAM_FAIL_COUNT_TOTAL = 0xB5,
-    SMART_ATTRIBUTE_ID_ERASE_FAIL_COUNT = 0xB6,
+    SMART_ATTRIBUTE_ID_ERASE_FAIL_COUNT_SAMSUNG = 0xB6,
     SMART_ATTRIBUTE_ID_SATA_DOWNSHIFT_ERROR_COUNT = 0xB7,
     SMART_ATTRIBUTE_ID_END_TO_END_ERROR = 0xB8,
     SMART_ATTRIBUTE_ID_HEAD_STABILITY = 0xB9,
@@ -980,18 +998,25 @@ typedef enum _SMART_ATTRIBUTE_ID
     SMART_ATTRIBUTE_ID_LOAD_UNLOAD_CYCLE_COUNT = 0xE1,
     SMART_ATTRIBUTE_ID_LOAD_IN_TIME = 0xE2,
     SMART_ATTRIBUTE_ID_TORQUE_AMPLIFICATION_COUNT = 0xE3,
-    SMART_ATTRIBUTE_ID_POWER_OFF_RETTRACT_CYCLE = 0xE4,
+    SMART_ATTRIBUTE_ID_POWER_OFF_RETRACT_CYCLE = 0xE4,
     // TODO: Add value 229
     SMART_ATTRIBUTE_ID_GMR_HEAD_AMPLITUDE = 0xE6,
     SMART_ATTRIBUTE_ID_DRIVE_TEMPERATURE = 0xE7,
-    // TODO: Add value 232
-    SMART_ATTRIBUTE_ID_SSD_MEDIA_WEAROUT_HOURS = 0xE9,
+    SMART_ATTRIBUTE_ID_ENDURACE_REMAINING = 0xE8,
+    SMART_ATTRIBUTE_ID_SSD_MEDIA_WEAROUT_INDICATOR = 0xE9,
     SMART_ATTRIBUTE_ID_SSD_ERASE_COUNT = 0xEA,
-    // TODO: Add values 235-239
+    SMART_ATTRIBUTE_ID_GOOD_BLOCK_COUNT_AND_SYSTEM_BLOCK_COUNT = 0xEB,
+    // TODO: Add values 236-239
     SMART_ATTRIBUTE_ID_HEAD_FLYING_HOURS = 0xF0,
-    SMART_ATTRIBUTE_ID_TOTAL_LBA_WRITTEN = 0xF1,
-    SMART_ATTRIBUTE_ID_TOTAL_LBA_READ = 0xF2,
-    // TODO: Add values 243-249
+    SMART_ATTRIBUTE_ID_TOTAL_HOST_WRITES = 0xF1,
+    SMART_ATTRIBUTE_ID_TOTAL_HOST_READS = 0xF2,
+    SMART_ATTRIBUTE_ID_TOTAL_HOST_WRITES_EXPANDED = 0xF3,
+    SMART_ATTRIBUTE_ID_TOTAL_HOST_READS_EXPANDED = 0xF4,
+    SMART_ATTRIBUTE_ID_REMAINING_RATED_WRITE_ENDURANCE = 0xF5,
+    SMART_ATTRIBUTE_ID_CUMULATIVE_HOST_SECTORS_WRITTEN = 0xF6,
+    SMART_ATTRIBUTE_ID_HOST_PROGRAM_PAGE_COUNT = 0xF7,
+    SMART_ATTRIBUTE_ID_BACKGROUND_PROGRAM_PAGE_COUNT = 0xF8,
+    SMART_ATTRIBUTE_ID_NAND_WRITES = 0xF9,
     SMART_ATTRIBUTE_ID_READ_ERROR_RETY_RATE = 0xFA,
     SMART_ATTRIBUTE_ID_MIN_SPARES_REMAINING = 0xFB,
     SMART_ATTRIBUTE_ID_NEWLY_ADDED_BAD_FLASH_BLOCK = 0xFC,
@@ -1181,7 +1206,7 @@ VOID RaplDevicesLoadList(
     );
 
 VOID RaplDevicesUpdate(
-    VOID
+    _In_ ULONG RunCount
     );
 
 VOID InitializeRaplDeviceId(
@@ -1376,7 +1401,7 @@ VOID GraphicsDevicesLoadList(
     );
 
 VOID GraphicsDevicesUpdate(
-    VOID
+    _In_ ULONG RunCount
     );
 
 VOID InitializeGraphicsDeviceId(
@@ -1654,6 +1679,21 @@ extern const ULONG DeviceItemPropertyTableCount;
 BOOLEAN DeviceShowProperties(
     _In_ HWND ParentWindowHandle,
     _In_ PPH_DEVICE_ITEM DeviceItem
+    );
+
+typedef struct _DEVICE_RESOURCE
+{
+    PCWSTR Type;
+    PPH_STRING Setting;
+} DEVICE_RESOURCE, * PDEVICE_RESOURCE;
+
+VOID DeviceGetAllocatedResourcesList(
+    _In_ PPH_DEVICE_ITEM DeviceItem,
+    _Out_ PPH_LIST* List
+    );
+
+VOID DeviceFreeAllocatedResourcesList(
+    _In_ PPH_LIST List
     );
 
 #endif

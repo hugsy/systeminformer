@@ -23,7 +23,7 @@
 typedef enum _PH_GENERAL_CALLBACK
 {
     GeneralCallbackMainWindowShowing = 0, // INT ShowCommand [main thread]
-    GeneralCallbackProcessesUpdated = 1, // [main thread]
+    GeneralCallbackProcessesUpdated = 1, // ULONG RunId [main thread]
     GeneralCallbackGetProcessHighlightingColor = 2, // PPH_PLUGIN_GET_HIGHLIGHTING_COLOR Data [main thread]
     GeneralCallbackGetProcessTooltipText = 3, // PPH_PLUGIN_GET_TOOLTIP_TEXT Data [main thread]
     GeneralCallbackProcessPropertiesInitializing = 4, // PPH_PLUGIN_PROCESS_PROPCONTEXT Data [properties thread]
@@ -56,12 +56,14 @@ typedef enum _PH_GENERAL_CALLBACK
     GeneralCallbackMemoryItemListControl = 31, // PPH_PLUGIN_MEMORY_ITEM_LIST_CONTROL Data [properties thread]
     GeneralCallbackMiniInformationInitializing = 32, // PPH_PLUGIN_MINIINFO_POINTERS Data [main thread]
     GeneralCallbackMiListSectionMenuInitializing = 33, // PPH_PLUGIN_MENU_INFORMATION Data [main thread]
-    GeneralCallbackOptionsWindowInitializing = 34, // PPH_PLUGIN_OBJECT_PROPERTIES Data [main thread]
+    GeneralCallbackOptionsWindowInitializing = 34, // PH_PLUGIN_OPTIONS_POINTERS Data [main thread]
+    GeneralCallbackHandlePropertiesWindowInitialized = 35, // PPH_PLUGIN_HANDLE_PROPERTIES_WINDOW_CONTEXT Data [properties thread]
+    GeneralCallbackHandlePropertiesWindowUninitializing = 36, // PPH_PLUGIN_HANDLE_PROPERTIES_WINDOW_CONTEXT Data [properties thread]
 
     GeneralCallbackProcessProviderAddedEvent, // [process provider thread]
     GeneralCallbackProcessProviderModifiedEvent, // [process provider thread]
     GeneralCallbackProcessProviderRemovedEvent, // [process provider thread]
-    GeneralCallbackProcessProviderUpdatedEvent, // [process provider thread]
+    GeneralCallbackProcessProviderUpdatedEvent, // PPH_PROCESS_PROVIDER_UPDATED_EVENT [process provider thread]
     GeneralCallbackServiceProviderAddedEvent, // [service provider thread]
     GeneralCallbackServiceProviderModifiedEvent, // [service provider thread]
     GeneralCallbackServiceProviderRemovedEvent, // [service provider thread]
@@ -71,13 +73,18 @@ typedef enum _PH_GENERAL_CALLBACK
     GeneralCallbackNetworkProviderRemovedEvent, // [network provider thread]
     GeneralCallbackNetworkProviderUpdatedEvent, // [network provider thread]
 
-    GeneralCallbackLoggedEvent,
-    GeneralCallbackTrayIconsInitializing,
+    GeneralCallbackLoggedEvent, // [multiple provider threads]
+
+    GeneralCallbackDeviceNotificationEvent, // [device provider thread]
+
+    GeneralCallbackTrayIconsInitializing, // [work queue thread]
+    GeneralCallbackTrayIconsUpdatedEvent,
+
     GeneralCallbackWindowNotifyEvent,
     GeneralCallbackProcessStatsNotifyEvent,
     GeneralCallbackSettingsUpdated,
-
-    GeneralCallbackDeviceNotificationEvent, // [device provider thread]
+    GeneralCallbackDangerousProcess,
+    GeneralCallbackUpdateAutomatically,
 
     GeneralCallbackMaximum
 } PH_GENERAL_CALLBACK, *PPH_GENERAL_CALLBACK;
@@ -93,6 +100,15 @@ typedef enum _PH_PLUGIN_CALLBACK
     PluginCallbackMenuHook = 6, // PH_PLUGIN_MENU_HOOK_INFORMATION MenuHookInfo [menu thread]
     PluginCallbackMaximum
 } PH_PLUGIN_CALLBACK, *PPH_PLUGIN_CALLBACK;
+
+// Provider events
+
+typedef struct _PH_PROCESS_PROVIDER_UPDATED_EVENT
+{
+    ULONG RunCount;
+} PH_PROCESS_PROVIDER_UPDATED_EVENT, *PPH_PROCESS_PROVIDER_UPDATED_EVENT;
+
+// Plugin events
 
 typedef struct _PH_PLUGIN_GET_HIGHLIGHTING_COLOR
 {
@@ -146,6 +162,94 @@ typedef struct _PH_PLUGIN_OBJECT_PROPERTIES
     HPROPSHEETPAGE *Pages;
 } PH_PLUGIN_OBJECT_PROPERTIES, *PPH_PLUGIN_OBJECT_PROPERTIES;
 
+typedef struct _PH_PLUGIN_IS_DANGEROUS_PROCESS
+{
+    HANDLE ProcessId;
+    BOOLEAN DangerousProcess;
+} PH_PLUGIN_IS_DANGEROUS_PROCESS, *PPH_PLUGIN_IS_DANGEROUS_PROCESS;
+
+typedef enum _PH_PLUGIN_HANDLE_GENERAL_CATEGORY
+{
+    // common
+    PH_PLUGIN_HANDLE_GENERAL_CATEGORY_BASICINFO,
+    PH_PLUGIN_HANDLE_GENERAL_CATEGORY_REFERENCES,
+    PH_PLUGIN_HANDLE_GENERAL_CATEGORY_QUOTA,
+    // extra
+    PH_PLUGIN_HANDLE_GENERAL_CATEGORY_ALPC,
+    PH_PLUGIN_HANDLE_GENERAL_CATEGORY_FILE,
+    PH_PLUGIN_HANDLE_GENERAL_CATEGORY_SECTION,
+    PH_PLUGIN_HANDLE_GENERAL_CATEGORY_MUTANT,
+    PH_PLUGIN_HANDLE_GENERAL_CATEGORY_PROCESSTHREAD,
+    PH_PLUGIN_HANDLE_GENERAL_CATEGORY_ETW,
+    PH_PLUGIN_HANDLE_GENERAL_CATEGORY_SYMBOLICLINK,
+
+    PH_PLUGIN_HANDLE_GENERAL_CATEGORY_MAXIMUM
+} PH_PLUGIN_HANDLE_GENERAL_CATEGORY;
+
+typedef enum _PH_PLUGIN_HANDLE_GENERAL_INDEX
+{
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_NAME,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_TYPE,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_OBJECT,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_ACCESSMASK,
+
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_REFERENCES,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_HANDLES,
+
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_PAGED,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_NONPAGED,
+
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_FLAGS,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_SEQUENCENUMBER,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_PORTCONTEXT,
+
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_FILETYPE,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_FILEMODE,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_FILEPOSITION,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_FILESIZE,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_FILEPRIORITY,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_FILEDRIVER,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_FILEDRIVERIMAGE,
+
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_SECTIONTYPE,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_SECTIONFILE,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_SECTIONSIZE,
+
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_MUTANTCOUNT,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_MUTANTABANDONED,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_MUTANTOWNER,
+
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_ALPCCONNECTION,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_ALPCSERVER,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_ALPCCLIENT,
+
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_PROCESSTHREADNAME,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_PROCESSTHREADCREATETIME,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_PROCESSTHREADEXITTIME,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_PROCESSTHREADEXITCODE,
+
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_ETWORIGINALNAME,
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_ETWGROUPNAME,
+
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_SYMBOLICLINKLINK,
+
+    PH_PLUGIN_HANDLE_GENERAL_INDEX_MAXIMUM
+} PH_PLUGIN_HANDLE_GENERAL_INDEX;
+
+typedef struct _PH_PLUGIN PH_PLUGIN, *PPH_PLUGIN;
+
+typedef struct _PH_PLUGIN_HANDLE_PROPERTIES_WINDOW_CONTEXT
+{
+    HWND ListViewHandle;
+    HWND ParentWindow;
+    HANDLE ProcessId;
+    PVOID ListViewClass;
+    PPH_HANDLE_ITEM HandleItem;
+    PH_LAYOUT_MANAGER LayoutManager;
+    INT ListViewRowCache[PH_PLUGIN_HANDLE_GENERAL_INDEX_MAXIMUM];
+    PPH_PLUGIN OwnerPlugin;
+} PH_PLUGIN_HANDLE_PROPERTIES_WINDOW_CONTEXT, *PPH_PLUGIN_HANDLE_PROPERTIES_WINDOW_CONTEXT;
+
 typedef struct _PH_PLUGIN_PROCESS_STATS_EVENT
 {
     ULONG Version;
@@ -156,8 +260,10 @@ typedef struct _PH_PLUGIN_PROCESS_STATS_EVENT
 
 typedef struct _PH_PLUGIN_HANDLE_PROPERTIES_CONTEXT
 {
+    HWND ParentWindowHandle;
     HANDLE ProcessId;
     PPH_HANDLE_ITEM HandleItem;
+    PPH_PLUGIN OwnerPlugin;
 } PH_PLUGIN_HANDLE_PROPERTIES_CONTEXT, *PPH_PLUGIN_HANDLE_PROPERTIES_CONTEXT;
 
 typedef struct _PH_EMENU_ITEM *PPH_EMENU_ITEM, *PPH_EMENU;
@@ -358,6 +464,8 @@ typedef PPH_MINIINFO_SECTION (NTAPI *PPH_MINIINFO_FIND_SECTION)(
     _In_ PPH_STRINGREF Name
     );
 
+typedef struct _PH_MINIINFO_LIST_SECTION PH_MINIINFO_LIST_SECTION, *PPH_MINIINFO_LIST_SECTION;
+
 typedef PPH_MINIINFO_LIST_SECTION (NTAPI *PPH_MINIINFO_CREATE_LIST_SECTION)(
     _In_ PWSTR Name,
     _In_ ULONG Flags,
@@ -375,7 +483,6 @@ typedef struct _PH_PLUGIN_MINIINFO_POINTERS
 
 // begin_phapppub
 typedef struct _PH_NF_ICON_REGISTRATION_DATA *PPH_NF_ICON_REGISTRATION_DATA;
-typedef struct _PH_PLUGIN *PPH_PLUGIN;
 
 /**
  * Creates a notification icon.
@@ -848,6 +955,16 @@ PhEnumeratePlugins(
     _In_opt_ PVOID Context
     );
 
+PHAPPAPI
+VOID
+NTAPI
+PhShowHandlePropertiesEx(
+    _In_ HWND ParentWindowHandle,
+    _In_ HANDLE ProcessId,
+    _In_ PPH_HANDLE_ITEM HandleItem,
+    _In_opt_ PPH_PLUGIN OwnerPlugin,
+    _In_opt_ PWSTR Caption
+    );
 // end_phapppub
 
 #endif

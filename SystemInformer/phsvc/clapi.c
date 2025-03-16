@@ -22,8 +22,10 @@ NTSTATUS PhSvcConnectToServer(
     _In_opt_ SIZE_T PortSectionSize
     )
 {
+    static ULONG heapCompatibility = HEAP_COMPATIBILITY_LFH;
     NTSTATUS status;
     HANDLE sectionHandle;
+    OBJECT_ATTRIBUTES objectAttributes;
     LARGE_INTEGER sectionSize;
     PORT_VIEW clientView;
     REMOTE_PORT_VIEW serverView;
@@ -38,13 +40,21 @@ NTSTATUS PhSvcConnectToServer(
     if (PortSectionSize == 0)
         PortSectionSize = UInt32x32To64(8, 1024 * 1024); // 8 MB
 
+    InitializeObjectAttributes(
+        &objectAttributes,
+        NULL,
+        OBJ_EXCLUSIVE,
+        NULL,
+        NULL
+        );
+
     // Create the port section and connect to the port.
 
     sectionSize.QuadPart = PortSectionSize;
     status = NtCreateSection(
         &sectionHandle,
         SECTION_ALL_ACCESS,
-        NULL,
+        &objectAttributes,
         &sectionSize,
         PAGE_READWRITE,
         SEC_COMMIT,
@@ -110,7 +120,7 @@ NTSTATUS PhSvcConnectToServer(
     RtlSetHeapInformation(
         PhSvcClPortHeap,
         HeapCompatibilityInformation,
-        &(ULONG){ HEAP_COMPATIBILITY_LFH },
+        &heapCompatibility,
         sizeof(ULONG)
         );
 
@@ -169,7 +179,7 @@ VOID PhSvcpFreeHeap(
 
 _Success_(return != NULL)
 PVOID PhSvcpCreateString(
-    _In_opt_ PVOID String,
+    _In_opt_ PCWSTR String,
     _In_ SIZE_T Length,
     _Out_ PPH_RELATIVE_STRINGREF StringRef
     )
@@ -339,7 +349,8 @@ NTSTATUS PhSvcCallExecuteRunAsCommand(
 
 NTSTATUS PhSvcCallUnloadDriver(
     _In_opt_ PVOID BaseAddress,
-    _In_opt_ PWSTR Name
+    _In_opt_ PCWSTR Name,
+    _In_opt_ PCWSTR FileName
     )
 {
     NTSTATUS status;
@@ -352,12 +363,19 @@ NTSTATUS PhSvcCallUnloadDriver(
         return STATUS_PORT_DISCONNECTED;
 
     m.p.ApiNumber = PhSvcUnloadDriverApiNumber;
-
     m.p.u.UnloadDriver.i.BaseAddress = BaseAddress;
 
     if (Name)
     {
         name = PhSvcpCreateString(Name, SIZE_MAX, &m.p.u.UnloadDriver.i.Name);
+
+        if (!name)
+            return STATUS_NO_MEMORY;
+    }
+
+    if (FileName)
+    {
+        name = PhSvcpCreateString(FileName, SIZE_MAX, &m.p.u.UnloadDriver.i.FileName);
 
         if (!name)
             return STATUS_NO_MEMORY;
@@ -391,7 +409,7 @@ NTSTATUS PhSvcCallControlProcess(
 }
 
 NTSTATUS PhSvcCallControlService(
-    _In_ PWSTR ServiceName,
+    _In_ PCWSTR ServiceName,
     _In_ PHSVC_API_CONTROLSERVICE_COMMAND Command
     )
 {
@@ -423,17 +441,17 @@ NTSTATUS PhSvcCallControlService(
 }
 
 NTSTATUS PhSvcCallCreateService(
-    _In_ PWSTR ServiceName,
-    _In_opt_ PWSTR DisplayName,
+    _In_ PCWSTR ServiceName,
+    _In_opt_ PCWSTR DisplayName,
     _In_ ULONG ServiceType,
     _In_ ULONG StartType,
     _In_ ULONG ErrorControl,
-    _In_opt_ PWSTR BinaryPathName,
-    _In_opt_ PWSTR LoadOrderGroup,
+    _In_opt_ PCWSTR BinaryPathName,
+    _In_opt_ PCWSTR LoadOrderGroup,
     _Out_opt_ PULONG TagId,
-    _In_opt_ PWSTR Dependencies,
-    _In_opt_ PWSTR ServiceStartName,
-    _In_opt_ PWSTR Password
+    _In_opt_ PCWSTR Dependencies,
+    _In_opt_ PCWSTR ServiceStartName,
+    _In_opt_ PCWSTR Password
     )
 {
     NTSTATUS status;
@@ -474,7 +492,7 @@ NTSTATUS PhSvcCallCreateService(
     {
         SIZE_T dependenciesLength;
         SIZE_T partCount;
-        PWSTR part;
+        PCWSTR part;
 
         dependenciesLength = sizeof(WCHAR);
         part = Dependencies;
@@ -527,17 +545,17 @@ CleanupExit:
 }
 
 NTSTATUS PhSvcCallChangeServiceConfig(
-    _In_ PWSTR ServiceName,
+    _In_ PCWSTR ServiceName,
     _In_ ULONG ServiceType,
     _In_ ULONG StartType,
     _In_ ULONG ErrorControl,
-    _In_opt_ PWSTR BinaryPathName,
-    _In_opt_ PWSTR LoadOrderGroup,
+    _In_opt_ PCWSTR BinaryPathName,
+    _In_opt_ PCWSTR LoadOrderGroup,
     _Out_opt_ PULONG TagId,
-    _In_opt_ PWSTR Dependencies,
-    _In_opt_ PWSTR ServiceStartName,
-    _In_opt_ PWSTR Password,
-    _In_opt_ PWSTR DisplayName
+    _In_opt_ PCWSTR Dependencies,
+    _In_opt_ PCWSTR ServiceStartName,
+    _In_opt_ PCWSTR Password,
+    _In_opt_ PCWSTR DisplayName
     )
 {
     NTSTATUS status;
@@ -576,7 +594,7 @@ NTSTATUS PhSvcCallChangeServiceConfig(
     {
         SIZE_T dependenciesLength;
         SIZE_T partCount;
-        PWSTR part;
+        PCWSTR part;
 
         dependenciesLength = sizeof(WCHAR);
         part = Dependencies;
@@ -699,7 +717,7 @@ VOID PhSvcpPackBuffer(
 }
 
 SIZE_T PhSvcpBufferLengthStringZ(
-    _In_opt_ PWSTR String,
+    _In_opt_ PCWSTR String,
     _In_ BOOLEAN Multi
     )
 {
@@ -709,7 +727,7 @@ SIZE_T PhSvcpBufferLengthStringZ(
     {
         if (Multi)
         {
-            PWSTR part = String;
+            PCWSTR part = String;
             SIZE_T partCount;
 
             while (TRUE)
@@ -733,7 +751,7 @@ SIZE_T PhSvcpBufferLengthStringZ(
 }
 
 NTSTATUS PhSvcCallChangeServiceConfig2(
-    _In_ PWSTR ServiceName,
+    _In_ PCWSTR ServiceName,
     _In_ ULONG InfoLevel,
     _In_ PVOID Info
     )
@@ -773,7 +791,7 @@ NTSTATUS PhSvcCallChangeServiceConfig2(
                         1, &packedFailureActions);
                 }
 
-                info = PhSvcpCreateString(bb.Bytes->Buffer, bb.Bytes->Length, &m.p.u.ChangeServiceConfig2.i.Info);
+                info = PhSvcpCreateString((PCWSTR)bb.Bytes->Buffer, bb.Bytes->Length, &m.p.u.ChangeServiceConfig2.i.Info);
                 PhDeleteBytesBuilder(&bb);
             }
             break;
@@ -796,7 +814,7 @@ NTSTATUS PhSvcCallChangeServiceConfig2(
                 PhSvcpPackBuffer(&bb, &packedRequiredPrivilegesInfo->pmszRequiredPrivileges, PhSvcpBufferLengthStringZ(requiredPrivilegesInfo->pmszRequiredPrivileges, TRUE), sizeof(WCHAR),
                     1, &packedRequiredPrivilegesInfo);
 
-                info = PhSvcpCreateString(bb.Bytes->Buffer, bb.Bytes->Length, &m.p.u.ChangeServiceConfig2.i.Info);
+                info = PhSvcpCreateString((PCWSTR)bb.Bytes->Buffer, bb.Bytes->Length, &m.p.u.ChangeServiceConfig2.i.Info);
                 PhDeleteBytesBuilder(&bb);
             }
             break;
@@ -860,7 +878,7 @@ NTSTATUS PhSvcCallChangeServiceConfig2(
                     }
                 }
 
-                info = PhSvcpCreateString(bb.Bytes->Buffer, bb.Bytes->Length, &m.p.u.ChangeServiceConfig2.i.Info);
+                info = PhSvcpCreateString((PCWSTR)bb.Bytes->Buffer, bb.Bytes->Length, &m.p.u.ChangeServiceConfig2.i.Info);
                 PhDeleteBytesBuilder(&bb);
             }
             break;
@@ -1033,8 +1051,8 @@ NTSTATUS PhSvcCallSendMessage(
 }
 
 NTSTATUS PhSvcCallCreateProcessIgnoreIfeoDebugger(
-    _In_ PWSTR FileName,
-    _In_opt_ PWSTR CommandLine
+    _In_ PCWSTR FileName,
+    _In_opt_ PCWSTR CommandLine
     )
 {
     NTSTATUS status;
@@ -1101,7 +1119,7 @@ PSECURITY_DESCRIPTOR PhpAbsoluteToSelfRelativeSD(
 }
 
 NTSTATUS PhSvcCallSetServiceSecurity(
-    _In_ PWSTR ServiceName,
+    _In_ PCWSTR ServiceName,
     _In_ SECURITY_INFORMATION SecurityInformation,
     _In_ PSECURITY_DESCRIPTOR SecurityDescriptor
     )

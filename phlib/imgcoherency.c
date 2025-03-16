@@ -247,6 +247,8 @@ PPH_IMAGE_COHERENCY_CONTEXT PhpCreateImageCoherencyContext(
         PH_MAPPED_IMAGE_DYNAMIC_RELOC dynRelocs;
         PIMAGE_DATA_DIRECTORY directory;
 
+        PhMappedImagePrefetch(&context->MappedImage);
+
         //
         // Build a hash table for the relocation entries to skip later.
         // This hash table will map the RVA to the number of bytes to skip.
@@ -709,7 +711,7 @@ VOID PhpAnalyzeImageCoherencyCommonAsNative(
     //
     // Here we will inspect each executable section.
     //
-    for (ULONG i = 0;
+    for (USHORT i = 0;
          i < max(Context->MappedImage.NumberOfSections,
                  Context->RemoteMappedImage.NumberOfSections);
          i++)
@@ -954,7 +956,7 @@ VOID PhpAnalyzeImageCoherencyCommon(
     //
     // Loop over the number of sections and include them in the calculation
     //
-    for (ULONG i = 0;
+    for (USHORT i = 0;
          i < max(Context->MappedImage.NumberOfSections,
                  Context->RemoteMappedImage.NumberOfSections);
          i++)
@@ -964,9 +966,9 @@ VOID PhpAnalyzeImageCoherencyCommon(
         {
             PhpAnalyzeImageCoherencyInspect(
                 (PBYTE)&Context->MappedImage.Sections[i],
-                sizeof(IMAGE_SECTION_HEADER),
+                IMAGE_SIZEOF_SECTION_HEADER,
                 (PBYTE)&Context->RemoteMappedImage.Sections[i],
-                sizeof(IMAGE_SECTION_HEADER),
+                IMAGE_SIZEOF_SECTION_HEADER,
                 Context,
                 0,
                 NULL,
@@ -979,7 +981,7 @@ VOID PhpAnalyzeImageCoherencyCommon(
             // There are a mismatched number of sections
             // Inflate the total bytes
             //
-            Context->TotalBytes += sizeof(IMAGE_SECTION_HEADER);
+            Context->TotalBytes += IMAGE_SIZEOF_SECTION_HEADER;
         }
     }
 
@@ -1517,7 +1519,7 @@ NTSTATUS PhCheckImagePagesForTampering(
 
         for (i = 0; i < numberOfPages; i++)
         {
-            PMEMORY_WORKING_SET_EX_BLOCK page = &info[i].u1.VirtualAttributes;
+            PMEMORY_WORKING_SET_EX_BLOCK page = &info[i].VirtualAttributes;
 
             if (!page->SharedOriginal)
             {

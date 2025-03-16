@@ -124,7 +124,7 @@ VOID ShowUpdateInstallDialog(
         config.pszContent = L"The update has been successfully downloaded and verified.\r\n\r\nClick Install to continue.";
     }
 
-    TaskDialogNavigatePage(Context->DialogHandle, &config);
+    PhTaskDialogNavigatePage(Context->DialogHandle, &config);
 }
 
 PPH_STRING UpdaterGetLatestVersionText(
@@ -198,7 +198,7 @@ VOID ShowLatestVersionDialog(
     config.pszMainInstruction = L"You're running the latest version.";
     config.pszContent = PH_AUTO_T(PH_STRING, UpdaterGetLatestVersionText(Context))->Buffer;
 
-    TaskDialogNavigatePage(Context->DialogHandle, &config);
+    PhTaskDialogNavigatePage(Context->DialogHandle, &config);
 }
 
 VOID ShowNewerVersionDialog(
@@ -218,12 +218,9 @@ VOID ShowNewerVersionDialog(
 
     config.pszWindowTitle = L"System Informer - Updater";
     config.pszMainInstruction = L"You're running a pre-release build.";
-    config.pszContent = PhaFormatString(
-        L"Pre-release build: v%s\r\n\r\n<A HREF=\"changelog.txt\">View changelog</A>",
-        PhGetString(PH_AUTO_T(PH_STRING, PhGetPhVersion()))
-        )->Buffer;
+    config.pszContent = PH_AUTO_T(PH_STRING, UpdaterGetLatestVersionText(Context))->Buffer;
 
-    TaskDialogNavigatePage(Context->DialogHandle, &config);
+    PhTaskDialogNavigatePage(Context->DialogHandle, &config);
 }
 
 VOID ShowUpdateFailedDialog(
@@ -267,7 +264,7 @@ VOID ShowUpdateFailedDialog(
         {
             PPH_STRING errorMessage;
 
-            if (errorMessage = PhHttpSocketGetErrorMessage(Context->ErrorCode))
+            if (errorMessage = PhHttpGetErrorMessage(Context->ErrorCode))
             {
                 config.pszContent = PhaFormatString(L"[%lu] %s", Context->ErrorCode, errorMessage->Buffer)->Buffer;
                 PhDereferenceObject(errorMessage);
@@ -298,5 +295,5 @@ VOID ShowUpdateFailedDialog(
     config.pfCallback = FinalTaskDialogCallbackProc;
     config.lpCallbackData = (LONG_PTR)Context;
 
-    TaskDialogNavigatePage(Context->DialogHandle, &config);
+    PhTaskDialogNavigatePage(Context->DialogHandle, &config);
 }

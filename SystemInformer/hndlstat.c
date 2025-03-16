@@ -13,6 +13,7 @@
 #include <phapp.h>
 #include <hndlinfo.h>
 #include <settings.h>
+#include <phsettings.h>
 
 typedef struct _HANDLE_STATISTICS_ENTRY
 {
@@ -42,10 +43,8 @@ VOID PhShowHandleStatisticsDialog(
     _In_ HANDLE ProcessId
     )
 {
-    BOOLEAN enableHandleSnapshot;
     NTSTATUS status;
     HANDLE_STATISTICS_CONTEXT context;
-    BOOLEAN filterNeeded;
     ULONG i;
 
     memset(&context, 0, sizeof(HANDLE_STATISTICS_CONTEXT));
@@ -61,14 +60,11 @@ VOID PhShowHandleStatisticsDialog(
         return;
     }
 
-    enableHandleSnapshot = !!PhGetIntegerSetting(L"EnableHandleSnapshot");
-
     status = PhEnumHandlesGeneric(
         context.ProcessId,
         context.ProcessHandle,
-        enableHandleSnapshot,
-        &context.Handles,
-        &filterNeeded
+        PhCsEnableHandleSnapshot,
+        &context.Handles
         );
 
     if (!NT_SUCCESS(status))
@@ -159,9 +155,10 @@ INT_PTR CALLBACK PhpHandleStatisticsDlgProc(
             PhInitializeLayoutManager(&context->LayoutManager, hwndDlg);
             PhAddLayoutItem(&context->LayoutManager, context->ListViewHandle, NULL, PH_ANCHOR_ALL);
             PhAddLayoutItem(&context->LayoutManager, GetDlgItem(hwndDlg, IDOK), NULL, PH_ANCHOR_BOTTOM | PH_ANCHOR_RIGHT);
-            
-            if (PhGetScalableIntegerPairSetting(L"HandleStatisticsWindowSize", TRUE, dpiValue).X)
+
+            if (PhValidWindowPlacementFromSetting(L"HandleStatisticsWindowSize"))
                 PhLoadWindowPlacementFromSetting(NULL, L"HandleStatisticsWindowSize", hwndDlg);
+
             PhCenterWindow(hwndDlg, GetParent(hwndDlg));
 
             for (i = 0; i < context->Handles->NumberOfHandles; i++)
@@ -171,16 +168,16 @@ INT_PTR CALLBACK PhpHandleStatisticsDlgProc(
 
                 handleInfo = &context->Handles->Handles[i];
 
-                if (handleInfo->UniqueProcessId != (ULONG_PTR)processId)
+                if (handleInfo->UniqueProcessId != processId)
                     continue;
                 if (handleInfo->ObjectTypeIndex >= MAX_OBJECT_TYPE_NUMBER)
                     continue;
 
                 entry = &context->Entries[handleInfo->ObjectTypeIndex];
 
-                if (!entry->Name)
+                if (PhIsNullOrEmptyString(entry->Name))
                 {
-                    entry->Name = PhGetObjectTypeName(handleInfo->ObjectTypeIndex);
+                    entry->Name = PhGetObjectTypeIndexName(handleInfo->ObjectTypeIndex);
 
                     if (PhIsNullOrEmptyString(entry->Name))
                     {
@@ -188,7 +185,7 @@ INT_PTR CALLBACK PhpHandleStatisticsDlgProc(
 
                         PhGetHandleInformation(
                             context->ProcessHandle,
-                            (HANDLE)handleInfo->HandleValue,
+                            handleInfo->HandleValue,
                             handleInfo->ObjectTypeIndex,
                             NULL,
                             &typeName,
@@ -217,19 +214,18 @@ INT_PTR CALLBACK PhpHandleStatisticsDlgProc(
 
                 unknownType = NULL;
 
-                if (!entry->Name)
+                if (PhIsNullOrEmptyString(entry->Name))
                     unknownType = PhFormatString(L"(unknown: %lu)", (ULONG)i);
-
-                countString = PhFormatUInt64(entry->Count, TRUE);
 
                 lvItemIndex = PhAddListViewItem(
                     context->ListViewHandle,
                     MAXINT,
-                    entry->Name ? entry->Name->Buffer : unknownType->Buffer,
+                    PhIsNullOrEmptyString(entry->Name) ? PhGetString(entry->Name) : PhGetString(unknownType),
                     entry
                     );
-                PhSetListViewSubItem(context->ListViewHandle, lvItemIndex, 1, countString->Buffer);
 
+                countString = PhFormatUInt64(entry->Count, TRUE);
+                PhSetListViewSubItem(context->ListViewHandle, lvItemIndex, 1, countString->Buffer);
                 PhDereferenceObject(countString);
 
                 if (unknownType)
@@ -237,6 +233,8 @@ INT_PTR CALLBACK PhpHandleStatisticsDlgProc(
             }
 
             ExtendedListView_SortItems(context->ListViewHandle);
+
+            PhInitializeWindowTheme(hwndDlg, PhEnableThemeSupport);
         }
         break;
     case WM_DESTROY:

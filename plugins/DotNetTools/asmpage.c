@@ -14,6 +14,8 @@
 #include "clretw.h"
 #include "clrsup.h"
 #include "svcext.h"
+#include <searchbox.h>
+
 #include <evntcons.h>
 
 #define DNATNC_STRUCTURE 0
@@ -127,7 +129,7 @@ typedef struct _ASMPAGE_QUERY_CONTEXT
     PASMPAGE_CONTEXT PageContext;
 
     HANDLE ProcessId;
-    ULONG IsWow64;
+    ULONG IsWow64Process;
     ULONG ClrVersions;
     PDNA_NODE ClrV2Node;
 
@@ -325,7 +327,7 @@ VOID DotNetAsmDestroyNode(
 
 PDNA_NODE AddFakeClrNode(
     _In_ PASMPAGE_QUERY_CONTEXT Context,
-    _In_ PWSTR DisplayName
+    _In_ PCWSTR DisplayName
     )
 {
     PDNA_NODE node;
@@ -895,7 +897,11 @@ BOOLEAN NTAPI DotNetAsmTreeNewCallback(
         return TRUE;
     case TreeNewSortChanged:
         {
-            TreeNew_GetSort(context->TreeNewHandle, &context->TreeNewSortColumn, &context->TreeNewSortOrder);
+            PPH_TREENEW_SORT_CHANGED_EVENT sorting = Parameter1;
+
+            context->TreeNewSortColumn = sorting->SortColumn;
+            context->TreeNewSortOrder = sorting->SortOrder;
+
             TreeNew_NodesStructured(context->TreeNewHandle);
 
             // HACK
@@ -971,9 +977,9 @@ VOID DotNetAsmInitializeTreeList(
     Context->NodeRootList = PhCreateList(2);
 
     PhSetControlTheme(Context->TreeNewHandle, L"explorer");
+    TreeNew_SetRedraw(Context->TreeNewHandle, FALSE);
     TreeNew_SetCallback(Context->TreeNewHandle, DotNetAsmTreeNewCallback, Context);
     SendMessage(TreeNew_GetTooltips(Context->TreeNewHandle), TTM_SETMAXTIPWIDTH, 0, MAXSHORT);
-    TreeNew_SetRedraw(Context->TreeNewHandle, FALSE);
 
     PhAddTreeNewColumn(Context->TreeNewHandle, DNATNC_STRUCTURE, TRUE, L"Structure", 240, PH_ALIGN_LEFT, -2, 0);
     PhAddTreeNewColumn(Context->TreeNewHandle, DNATNC_ADDRESS, TRUE, L"Address", 50, PH_ALIGN_RIGHT, 1, DT_RIGHT);
@@ -983,23 +989,13 @@ VOID DotNetAsmInitializeTreeList(
     PhAddTreeNewColumn(Context->TreeNewHandle, DNATNC_BASEADDRESS, FALSE, L"Base address", 100, PH_ALIGN_LEFT, 5, DT_PATH_ELLIPSIS);
     PhAddTreeNewColumn(Context->TreeNewHandle, DNATNC_MVID, FALSE, L"MVID", 100, PH_ALIGN_LEFT, 6, DT_PATH_ELLIPSIS);
 
-    DotNetAsmLoadSettingsTreeList(Context);
+    PhInitializeTreeNewFilterSupport(&Context->TreeFilterSupport, Context->TreeNewHandle, Context->NodeList);
+    Context->TreeFilterEntry = PhAddTreeNewFilter(&Context->TreeFilterSupport, DotNetAsmTreeFilterCallback, Context);
 
-    TreeNew_SetRedraw(Context->TreeNewHandle, TRUE);
-    TreeNew_SetSort(Context->TreeNewHandle, DNATNC_STRUCTURE, NoSortOrder);
     TreeNew_SetTriState(Context->TreeNewHandle, TRUE);
+    TreeNew_SetRedraw(Context->TreeNewHandle, TRUE);
 
-    PhInitializeTreeNewFilterSupport(
-        &Context->TreeFilterSupport,
-        Context->TreeNewHandle,
-        Context->NodeList
-        );
-
-    Context->TreeFilterEntry = PhAddTreeNewFilter(
-        &Context->TreeFilterSupport,
-        DotNetAsmTreeFilterCallback,
-        Context
-        );
+    DotNetAsmLoadSettingsTreeList(Context);
 }
 
 VOID DotNetAsmDeleteTree(
@@ -1089,11 +1085,10 @@ static ULONG StartDotNetTrace(
     bufferSize = sizeof(EVENT_TRACE_PROPERTIES) + DotNetLoggerName.Length + sizeof(UNICODE_NULL);
     properties = PhAllocateZero(bufferSize);
     properties->Wnode.BufferSize = bufferSize;
-    properties->Wnode.ClientContext = 1;
+    properties->Wnode.ClientContext = EVENT_TRACE_CLOCK_RAW;
     properties->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
     properties->LogFileMode = EVENT_TRACE_REAL_TIME_MODE | EVENT_TRACE_USE_PAGED_MEMORY;
     properties->EnableFlags = EVENT_TRACE_FLAG_NO_SYSCONFIG;
-    properties->LogFileNameOffset = 0;
     properties->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
 
     result = StartTrace(&sessionHandle, DotNetLoggerName.Buffer, properties);
@@ -1137,8 +1132,38 @@ static ULONG NTAPI DotNetBufferCallback(
     return TRUE;
 }
 
-static VOID NTAPI DotNetEventCallback(
-    _In_ PEVENT_RECORD EventRecord
+PPH_STRING DnCreateStringSafe(
+    _In_ UNALIGNED PWSTR UnalignedString
+    )
+{
+    if (IS_ALIGNED(UnalignedString, MAX_NATURAL_ALIGNMENT))
+    {
+        // Address is aligned, access directly
+
+        return PhCreateString(UnalignedString);
+    }
+    else // if (((ULONG_PTR)UnalignedString % sizeof(PWSTR)) != 0)
+    {
+        SIZE_T alignedLength = 0;
+        WCHAR alignedBuffer[0x400];
+
+        // Address is not aligned, use memcpy to access the string.
+
+        while (UnalignedString[alignedLength] != UNICODE_NULL && alignedLength < RTL_NUMBER_OF(alignedBuffer) - sizeof(UNICODE_NULL))
+        {
+            alignedLength++;
+        }
+
+        memcpy(alignedBuffer, UnalignedString, alignedLength * sizeof(WCHAR));
+        alignedBuffer[alignedLength] = UNICODE_NULL;
+
+        return PhCreateString(alignedBuffer);
+    }
+}
+
+static VOID DotNetUserDataCallback(
+    _In_ PEVENT_RECORD EventRecord,
+    _In_ PVOID UserData
     )
 {
     PASMPAGE_QUERY_CONTEXT context = EventRecord->UserContext;
@@ -1153,7 +1178,7 @@ static VOID NTAPI DotNetEventCallback(
         {
         case RuntimeInformationDCStart:
             {
-                PRuntimeInformationRundown data = EventRecord->UserData;
+                PRuntimeInformationRundown data = UserData;
                 PDNA_NODE node;
                 PPH_STRING startupFlagsString;
                 PPH_STRING startupModeString;
@@ -1190,9 +1215,7 @@ static VOID NTAPI DotNetEventCallback(
                     PhDereferenceObject(startupFlagsString);
                 }
 
-                if (data->CommandLine[0])
-                    node->PathText = PhCreateString(data->CommandLine);
-
+                node->PathText = DnCreateStringSafe(PTR_ADD_OFFSET(UserData, RTL_SIZEOF_THROUGH_FIELD(RuntimeInformationRundown, StartupMode)));
                 node->RootNode = TRUE;
                 node->Node.Expanded = TRUE;
                 PhAddItemList(context->NodeRootList, node);
@@ -1200,14 +1223,20 @@ static VOID NTAPI DotNetEventCallback(
             break;
         case AppDomainDCStart_V1:
             {
-                PAppDomainLoadUnloadRundown_V1 data = EventRecord->UserData;
-                SIZE_T appDomainNameLength;
+                static CONST PH_STRINGREF appDomainString = PH_STRINGREF_INIT(L"AppDomain: ");
+                PAppDomainLoadUnloadRundown_V1 data = UserData;
+                UNALIGNED PVOID offset;
+                PPH_STRING appDomainNameString;
+                PPH_STRING displayNameString;
                 USHORT clrInstanceID;
                 PDNA_NODE parentNode;
                 PDNA_NODE node;
 
-                appDomainNameLength = PhCountStringZ(data->AppDomainName) * sizeof(WCHAR);
-                clrInstanceID = *(PUSHORT)PTR_ADD_OFFSET(data, FIELD_OFFSET(AppDomainLoadUnloadRundown_V1, AppDomainName) + appDomainNameLength + sizeof(UNICODE_NULL) + sizeof(ULONG));
+                offset = PTR_ADD_OFFSET(UserData, RTL_SIZEOF_THROUGH_FIELD(AppDomainLoadUnloadRundown_V1, AppDomainFlags));
+                appDomainNameString = DnCreateStringSafe(offset);
+                displayNameString = PhConcatStringRef2(&appDomainString, &appDomainNameString->sr);
+                offset = PTR_ADD_OFFSET(offset, appDomainNameString->Length + sizeof(UNICODE_NULL) + sizeof(ULONG));
+                clrInstanceID = *(UNALIGNED PUSHORT)offset;
 
                 // Find the CLR node to add the AppDomain node to.
                 parentNode = FindClrNode(context, clrInstanceID);
@@ -1216,13 +1245,17 @@ static VOID NTAPI DotNetEventCallback(
                 {
                     // Check for duplicates.
                     if (FindAppDomainNode(parentNode, data->AppDomainID))
+                    {
+                        PhDereferenceObject(displayNameString);
+                        PhDereferenceObject(appDomainNameString);
                         break;
+                    }
 
                     node = AddNode(context);
                     node->Type = DNA_TYPE_APPDOMAIN;
                     node->u.AppDomain.AppDomainID = data->AppDomainID;
                     node->u.AppDomain.AppDomainFlags = data->AppDomainFlags;
-                    node->u.AppDomain.DisplayName = PhConcatStrings2(L"AppDomain: ", data->AppDomainName);
+                    node->u.AppDomain.DisplayName = displayNameString;
                     node->StructureText = node->u.AppDomain.DisplayName->sr;
                     node->IdText = FormatToHexString(data->AppDomainID);
                     node->FlagsText = FlagsToString(data->AppDomainFlags, AppDomainFlagsMap, sizeof(AppDomainFlagsMap));
@@ -1230,80 +1263,106 @@ static VOID NTAPI DotNetEventCallback(
                     node->RootNode = TRUE; // HACK
                     node->Node.Expanded = TRUE;
                     PhAddItemList(parentNode->Children, node);
+
+                    PhDereferenceObject(appDomainNameString);
+                }
+                else
+                {
+                    PhDereferenceObject(displayNameString);
+                    PhDereferenceObject(appDomainNameString);
                 }
             }
             break;
         case AssemblyDCStart_V1:
             {
-                PAssemblyLoadUnloadRundown_V1 data = EventRecord->UserData;
-                SIZE_T fullyQualifiedAssemblyNameLength;
+                PAssemblyLoadUnloadRundown_V1 data = UserData;
+                UNALIGNED PVOID offset;
+                PPH_STRING assemblyNameString;
                 USHORT clrInstanceID;
                 PDNA_NODE parentNode;
                 PDNA_NODE node;
                 PH_STRINGREF remainingPart;
 
-                fullyQualifiedAssemblyNameLength = PhCountStringZ(data->FullyQualifiedAssemblyName) * sizeof(WCHAR);
-                clrInstanceID = *(PUSHORT)PTR_ADD_OFFSET(data, FIELD_OFFSET(AssemblyLoadUnloadRundown_V1, FullyQualifiedAssemblyName) + fullyQualifiedAssemblyNameLength + sizeof(UNICODE_NULL));
+                offset = PTR_ADD_OFFSET(UserData, RTL_SIZEOF_THROUGH_FIELD(AssemblyLoadUnloadRundown_V1, AssemblyFlags));
+                assemblyNameString = DnCreateStringSafe(offset);
+                offset = PTR_ADD_OFFSET(offset, assemblyNameString->Length + sizeof(UNICODE_NULL));
+                clrInstanceID = *(UNALIGNED PUSHORT)offset;
 
                 // Find the AppDomain node to add the Assembly node to.
 
                 parentNode = FindClrNode(context, clrInstanceID);
 
                 if (parentNode)
+                {
                     parentNode = FindAppDomainNode(parentNode, data->AppDomainID);
+                }
 
                 if (parentNode)
                 {
                     // Check for duplicates.
                     if (FindAssemblyNode(parentNode, data->AssemblyID))
+                    {
+                        PhDereferenceObject(assemblyNameString);
                         break;
+                    }
 
                     node = AddNode(context);
                     node->Type = DNA_TYPE_ASSEMBLY;
                     node->u.Assembly.AssemblyID = data->AssemblyID;
                     node->u.Assembly.AssemblyFlags = data->AssemblyFlags;
-                    node->u.Assembly.FullyQualifiedAssemblyName = PhCreateStringEx(data->FullyQualifiedAssemblyName, fullyQualifiedAssemblyNameLength);
+                    node->u.Assembly.FullyQualifiedAssemblyName = assemblyNameString;
 
                     // Display only the assembly name, not the whole fully qualified name.
                     if (!PhSplitStringRefAtChar(&node->u.Assembly.FullyQualifiedAssemblyName->sr, L',', &node->StructureText, &remainingPart))
+                    {
                         node->StructureText = node->u.Assembly.FullyQualifiedAssemblyName->sr;
+                    }
 
                     node->IdText = FormatToHexString(data->AssemblyID);
                     node->FlagsText = FlagsToString(data->AssemblyFlags, AssemblyFlagsMap, sizeof(AssemblyFlagsMap));
 
                     PhAddItemList(parentNode->Children, node);
                 }
+                else
+                {
+                    PhDereferenceObject(assemblyNameString);
+                }
             }
             break;
         case ModuleDCStart_V1:
             {
-                PModuleLoadUnloadRundown_V1 data = EventRecord->UserData;
-                PWSTR moduleILPath;
-                SIZE_T moduleILPathLength;
-                PWSTR moduleNativePath;
-                SIZE_T moduleNativePathLength;
+                PModuleLoadUnloadRundown_V1 data = UserData;
+                UNALIGNED PVOID offset;
+                PPH_STRING moduleILPathString;
+                PPH_STRING moduleNativeString;
                 USHORT clrInstanceID;
                 PDNA_NODE node;
 
-                moduleILPath = data->ModuleILPath;
-                moduleILPathLength = PhCountStringZ(moduleILPath) * sizeof(WCHAR);
-                moduleNativePath = PTR_ADD_OFFSET(moduleILPath, moduleILPathLength + sizeof(UNICODE_NULL));
-                moduleNativePathLength = PhCountStringZ(moduleNativePath) * sizeof(WCHAR);
-                clrInstanceID = *(PUSHORT)PTR_ADD_OFFSET(moduleNativePath, moduleNativePathLength + sizeof(UNICODE_NULL));
+                offset = PTR_ADD_OFFSET(UserData, RTL_SIZEOF_THROUGH_FIELD(ModuleLoadUnloadRundown_V1, Reserved1));
+                moduleILPathString = DnCreateStringSafe(offset);
+                offset = PTR_ADD_OFFSET(offset, moduleILPathString->Length + sizeof(UNICODE_NULL));
+                moduleNativeString = DnCreateStringSafe(offset);
+                offset = PTR_ADD_OFFSET(offset, moduleNativeString->Length + sizeof(UNICODE_NULL));
+                clrInstanceID = *(UNALIGNED PUSHORT)offset;
 
                 // Find the Assembly node to set the path on.
 
                 node = FindClrNode(context, clrInstanceID);
 
                 if (node)
+                {
                     node = FindAssemblyNode2(node, data->AssemblyID);
+                }
 
                 if (node)
                 {
-                    PhMoveReference(&node->PathText, PhCreateStringEx(moduleILPath, moduleILPathLength));
-
-                    if (moduleNativePathLength != 0)
-                        PhMoveReference(&node->NativePathText, PhCreateStringEx(moduleNativePath, moduleNativePathLength));
+                    PhMoveReference(&node->PathText, moduleILPathString);
+                    PhMoveReference(&node->NativePathText, moduleNativeString);
+                }
+                else
+                {
+                    PhDereferenceObject(moduleNativeString);
+                    PhDereferenceObject(moduleILPathString);
                 }
             }
             break;
@@ -1325,29 +1384,26 @@ static VOID NTAPI DotNetEventCallback(
             {
             case CLR_MODULEDCSTART_OPCODE:
                 {
-                    PModuleLoadUnloadRundown_V1 data = EventRecord->UserData;
-                    PWSTR moduleILPath;
-                    SIZE_T moduleILPathLength;
-                    PWSTR moduleNativePath;
-                    SIZE_T moduleNativePathLength;
+                    PModuleLoadUnloadRundown_V1 data = UserData;
+                    UNALIGNED PVOID offset;
+                    PPH_STRING moduleILPathString;
+                    PPH_STRING moduleNativeString;
                     PDNA_NODE node;
                     ULONG_PTR indexOfBackslash;
                     ULONG_PTR indexOfLastDot;
 
-                    moduleILPath = data->ModuleILPath;
-                    moduleILPathLength = PhCountStringZ(moduleILPath) * sizeof(WCHAR);
-                    moduleNativePath = PTR_ADD_OFFSET(moduleILPath, moduleILPathLength + sizeof(UNICODE_NULL));
-                    moduleNativePathLength = PhCountStringZ(moduleNativePath) * sizeof(WCHAR);
+                    offset = PTR_ADD_OFFSET(UserData, RTL_SIZEOF_THROUGH_FIELD(ModuleLoadUnloadRundown_V1, Reserved1));
+                    moduleILPathString = DnCreateStringSafe(offset);
+                    offset = PTR_ADD_OFFSET(offset, moduleILPathString->Length + sizeof(UNICODE_NULL));
+                    moduleNativeString = DnCreateStringSafe(offset);
 
-                    if (context->ClrV2Node && (moduleILPathLength != 0 || moduleNativePathLength != 0))
+                    if (context->ClrV2Node && (moduleILPathString->Length != 0 || moduleNativeString->Length != 0))
                     {
                         node = AddNode(context);
                         node->Type = DNA_TYPE_ASSEMBLY;
                         node->FlagsText = FlagsToString(data->ModuleFlags, ModuleFlagsMap, sizeof(ModuleFlagsMap));
-                        node->PathText = PhCreateStringEx(moduleILPath, moduleILPathLength);
-
-                        if (moduleNativePathLength != 0)
-                            node->NativePathText = PhCreateStringEx(moduleNativePath, moduleNativePathLength);
+                        node->PathText = moduleILPathString;
+                        node->NativePathText = moduleNativeString;
 
                         // Use the name between the last backslash and the last dot for the structure column text.
                         // (E.g. C:\...\AcmeSoft.BigLib.dll -> AcmeSoft.BigLib)
@@ -1375,6 +1431,11 @@ static VOID NTAPI DotNetEventCallback(
 
                         PhAddItemList(context->ClrV2Node->Children, node);
                     }
+                    else
+                    {
+                        PhDereferenceObject(moduleNativeString);
+                        PhDereferenceObject(moduleILPathString);
+                    }
                 }
                 break;
             case CLR_METHODDC_DCSTARTCOMPLETE_OPCODE:
@@ -1387,6 +1448,41 @@ static VOID NTAPI DotNetEventCallback(
                 break;
             }
         }
+    }
+}
+
+static VOID NTAPI DotNetEventCallback(
+    _In_ PEVENT_RECORD EventRecord
+    )
+{
+    if (EventRecord->UserDataLength)
+    {
+        // Note: ETW does not force an alignment between event data values.
+
+        if (EventRecord->UserDataLength != ROUND_TO_SIZE(EventRecord->UserDataLength, MEMORY_ALLOCATION_ALIGNMENT))
+        {
+            PVOID alignedUserData;
+
+            alignedUserData = _aligned_malloc(EventRecord->UserDataLength, MEMORY_ALLOCATION_ALIGNMENT);
+
+            if (alignedUserData)
+            {
+                RtlSecureZeroMemory(alignedUserData, EventRecord->UserDataLength);
+                RtlCopyMemory(alignedUserData, EventRecord->UserData, EventRecord->UserDataLength);
+
+                DotNetUserDataCallback(EventRecord, alignedUserData);
+
+                _aligned_free(alignedUserData);
+            }
+        }
+        else
+        {
+            DotNetUserDataCallback(EventRecord, EventRecord->UserData);
+        }
+    }
+    else
+    {
+        DotNetUserDataCallback(EventRecord, EventRecord->UserData);
     }
 }
 
@@ -1598,7 +1694,7 @@ NTSTATUS DotNetSosTraceQueryThreadStart(
     BOOLEAN success = FALSE;
 
 #ifdef _WIN64
-    if (Context->IsWow64)
+    if (Context->IsWow64Process)
     {
         if (PhUiConnectToPhSvcEx(NULL, Wow64PhSvcMode, FALSE))
         {
@@ -1621,6 +1717,7 @@ NTSTATUS DotNetSosTraceQueryThreadStart(
 
     for (ULONG i = 0; i < appdomainlist->Count; i++)
     {
+        static CONST PH_STRINGREF string = PH_STRINGREF_INIT(L"AppDomain: ");
         PDN_PROCESS_APPDOMAIN_ENTRY entry = appdomainlist->Items[i];
         PDNA_NODE parentNode;
 
@@ -1631,7 +1728,10 @@ NTSTATUS DotNetSosTraceQueryThreadStart(
         parentNode->Type = DNA_TYPE_APPDOMAIN;
         parentNode->u.AppDomain.AppDomainID = entry->AppDomainID;
         parentNode->u.AppDomain.AppDomainType = entry->AppDomainType;
-        parentNode->u.AppDomain.DisplayName = PhConcatStrings2(L"AppDomain: ", entry->AppDomainName->Buffer);
+        parentNode->u.AppDomain.DisplayName = PhFormatString(L"%s [%s]",
+            PH_AUTO_T(PH_STRING, PhConcatStringRef2(&string, &entry->AppDomainName->sr))->Buffer,
+            PhGetStringOrDefault(entry->AppDomainStage, L"Unknown")
+            );
         parentNode->StructureText = parentNode->u.AppDomain.DisplayName->sr;
         parentNode->IdText = FormatToHexString(entry->AppDomainID);
         parentNode->RootNode = TRUE;
@@ -1789,7 +1889,7 @@ VOID CreateDotNetTraceQueryThread(
     context = DotNetCreateQueryContext();
     context->PageContext = Context;
     context->ProcessId = ProcessId;
-    context->IsWow64 = Context->ProcessItem->IsWow64;
+    context->IsWow64Process = Context->ProcessItem->IsWow64Process;
     context->NodeList = PhCreateList(64);
     context->NodeRootList = PhCreateList(2);
 
@@ -1892,7 +1992,7 @@ BOOLEAN DotNetAsmTreeFilterCallback(
 VOID NTAPI DotNetAsmSearchControlCallback(
     _In_ ULONG_PTR MatchHandle,
     _In_opt_ PVOID Context
-)
+    )
 {
     PASMPAGE_CONTEXT context = Context;
 

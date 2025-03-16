@@ -168,7 +168,9 @@ typedef struct _REMOTE_PORT_VIEW64
     ULONGLONG ViewBase;
 } REMOTE_PORT_VIEW64, *PREMOTE_PORT_VIEW64;
 
+//
 // Port creation
+//
 
 NTSYSCALLAPI
 NTSTATUS
@@ -192,7 +194,9 @@ NtCreateWaitablePort(
     _In_opt_ ULONG MaxPoolUsage
     );
 
+//
 // Port connection (client)
+//
 
 NTSYSCALLAPI
 NTSTATUS
@@ -223,7 +227,9 @@ NtSecureConnectPort(
     _Inout_opt_ PULONG ConnectionInformationLength
     );
 
+//
 // Port connection (server)
+//
 
 NTSYSCALLAPI
 NTSTATUS
@@ -252,7 +258,9 @@ NtCompleteConnectPort(
     _In_ HANDLE PortHandle
     );
 
+//
 // General
+//
 
 NTSYSCALLAPI
 NTSTATUS
@@ -412,10 +420,10 @@ typedef struct _ALPC_PORT_ATTRIBUTES
 } ALPC_PORT_ATTRIBUTES, *PALPC_PORT_ATTRIBUTES;
 
 // begin_rev
-#define ALPC_MESSAGE_SECURITY_ATTRIBUTE 0x80000000
-#define ALPC_MESSAGE_VIEW_ATTRIBUTE 0x40000000
-#define ALPC_MESSAGE_CONTEXT_ATTRIBUTE 0x20000000
 #define ALPC_MESSAGE_HANDLE_ATTRIBUTE 0x10000000
+#define ALPC_MESSAGE_CONTEXT_ATTRIBUTE 0x20000000
+#define ALPC_MESSAGE_VIEW_ATTRIBUTE 0x40000000
+#define ALPC_MESSAGE_SECURITY_ATTRIBUTE 0x80000000
 // end_rev
 
 // symbols
@@ -496,8 +504,8 @@ typedef struct _ALPC_HANDLE_ATTR32
     ULONG Reserved1;
     ULONG Handle;
     ULONG ObjectType; // ObjectTypeCode, not ObjectTypeIndex
-    ULONG DesiredAccess;
-    ULONG GrantedAccess;
+    ACCESS_MASK DesiredAccess;
+    ACCESS_MASK GrantedAccess;
 } ALPC_HANDLE_ATTR32, *PALPC_HANDLE_ATTR32;
 
 // private
@@ -646,9 +654,11 @@ typedef struct _ALPC_MESSAGE_HANDLE_INFORMATION
 
 // begin_private
 
-#if (PHNT_VERSION >= PHNT_VISTA)
+#if (PHNT_VERSION >= PHNT_WINDOWS_VISTA)
 
+//
 // System calls
+//
 
 NTSYSCALLAPI
 NTSTATUS
@@ -813,7 +823,7 @@ NtAlpcConnectPort(
     _In_opt_ PLARGE_INTEGER Timeout
     );
 
-#if (PHNT_VERSION >= PHNT_WIN8)
+#if (PHNT_VERSION >= PHNT_WINDOWS_8)
 NTSYSCALLAPI
 NTSTATUS
 NTAPI
@@ -887,7 +897,7 @@ NtAlpcImpersonateClientOfPort(
     _In_ PVOID Flags
     );
 
-#if (PHNT_VERSION >= PHNT_THRESHOLD)
+#if (PHNT_VERSION >= PHNT_WINDOWS_10)
 NTSYSCALLAPI
 NTSTATUS
 NTAPI
@@ -922,7 +932,9 @@ NtAlpcOpenSenderThread(
     _In_ POBJECT_ATTRIBUTES ObjectAttributes
     );
 
+//
 // Support functions
+//
 
 NTSYSAPI
 ULONG
@@ -931,16 +943,16 @@ AlpcMaxAllowedMessageLength(
     VOID
     );
 
+#define ALPC_ATTRFLG_ALLOCATEDATTR 0x20000000
+#define ALPC_ATTRFLG_VALIDATTR 0x40000000
+#define ALPC_ATTRFLG_KEEPRUNNINGATTR 0x60000000
+
 NTSYSAPI
 ULONG
 NTAPI
 AlpcGetHeaderSize(
     _In_ ULONG Flags
     );
-
-#define ALPC_ATTRFLG_ALLOCATEDATTR 0x20000000
-#define ALPC_ATTRFLG_VALIDATTR 0x40000000
-#define ALPC_ATTRFLG_KEEPRUNNINGATTR 0x60000000
 
 NTSYSAPI
 NTSTATUS
@@ -978,7 +990,7 @@ AlpcUnregisterCompletionList(
     _In_ HANDLE PortHandle
     );
 
-#if (PHNT_VERSION >= PHNT_WIN7)
+#if (PHNT_VERSION >= PHNT_WINDOWS_7)
 // rev
 NTSYSAPI
 NTSTATUS

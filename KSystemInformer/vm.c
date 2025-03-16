@@ -44,7 +44,7 @@ NTSTATUS KphpQuerySectionMappings(
     PEX_SPIN_LOCK lock;
     KIRQL oldIrql;
 
-    NPAGED_CODE_DISPATCH_MAX();
+    KPH_NPAGED_CODE_DISPATCH_MAX();
 
     lock = NULL;
     oldIrql = 0;
@@ -179,7 +179,7 @@ Exit:
     return status;
 }
 
-PAGED_FILE();
+KPH_PAGED_FILE();
 
 /**
  * \brief Copies process or kernel memory into the current process.
@@ -213,7 +213,7 @@ NTSTATUS KphReadVirtualMemory(
     PVOID buffer;
     BYTE stackBuffer[0x200];
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     numberOfBytesRead = 0;
     releaseModuleLock = FALSE;
@@ -227,9 +227,7 @@ NTSTATUS KphReadVirtualMemory(
 
     if (AccessMode != KernelMode)
     {
-        if ((Add2Ptr(BaseAddress, BufferSize) < BaseAddress) ||
-            (Add2Ptr(Buffer, BufferSize) < Buffer) ||
-            (Add2Ptr(Buffer, BufferSize) > MmHighestUserAddress))
+        if (Add2Ptr(BaseAddress, BufferSize) < BaseAddress)
         {
             status = STATUS_ACCESS_VIOLATION;
             goto Exit;
@@ -296,23 +294,15 @@ NTSTATUS KphReadVirtualMemory(
             goto Exit;
         }
 
-        if (BufferSize <= ARRAYSIZE(stackBuffer))
+        buffer = KphAllocateNPagedA(BufferSize, KPH_TAG_COPY_VM, stackBuffer);
+        if (!buffer)
         {
-            RtlZeroMemory(stackBuffer, ARRAYSIZE(stackBuffer));
-            buffer = stackBuffer;
-        }
-        else
-        {
-            buffer = KphAllocateNPaged(BufferSize, KPH_TAG_COPY_VM);
-            if (!buffer)
-            {
-                KphTracePrint(TRACE_LEVEL_VERBOSE,
-                              GENERAL,
-                              "Failed to allocate copy buffer.");
+            KphTracePrint(TRACE_LEVEL_VERBOSE,
+                          GENERAL,
+                          "Failed to allocate copy buffer.");
 
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto Exit;
-            }
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Exit;
         }
 
         copyAddress.VirtualAddress = BaseAddress;
@@ -371,9 +361,9 @@ NTSTATUS KphReadVirtualMemory(
 
 Exit:
 
-    if (buffer && (buffer != stackBuffer))
+    if (buffer)
     {
-        KphFree(buffer, KPH_TAG_COPY_VM);
+        KphFreeA(buffer, KPH_TAG_COPY_VM, stackBuffer);
     }
 
     if (releaseModuleLock)
@@ -434,7 +424,7 @@ NTSTATUS KphQuerySection(
     PVOID buffer;
     BYTE stackBuffer[64];
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     sectionObject = NULL;
     returnLength = 0;
@@ -484,20 +474,13 @@ NTSTATUS KphQuerySection(
         {
             if (SectionInformation)
             {
-                if (SectionInformationLength <= ARRAYSIZE(stackBuffer))
+                buffer = KphAllocateNPagedA(SectionInformationLength,
+                                            KPH_TAG_SECTION_QUERY,
+                                            stackBuffer);
+                if (!buffer)
                 {
-                    RtlZeroMemory(stackBuffer, ARRAYSIZE(stackBuffer));
-                    buffer = stackBuffer;
-                }
-                else
-                {
-                    buffer = KphAllocateNPaged(SectionInformationLength,
-                                               KPH_TAG_SECTION_QUERY);
-                    if (!buffer)
-                    {
-                        status = STATUS_INSUFFICIENT_RESOURCES;
-                        goto Exit;
-                    }
+                    status = STATUS_INSUFFICIENT_RESOURCES;
+                    goto Exit;
                 }
             }
             else
@@ -565,9 +548,9 @@ Exit:
         ObDereferenceObject(sectionObject);
     }
 
-    if (buffer && (buffer != stackBuffer))
+    if (buffer)
     {
-        KphFree(buffer, KPH_TAG_SECTION_QUERY);
+        KphFreeA(buffer, KPH_TAG_SECTION_QUERY, stackBuffer);
     }
 
     return status;
@@ -606,7 +589,7 @@ NTSTATUS KphQueryVirtualMemory(
     PKPH_THREAD_CONTEXT thread;
     PUNICODE_STRING mappedFileName;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     returnLength = 0;
     thread = NULL;

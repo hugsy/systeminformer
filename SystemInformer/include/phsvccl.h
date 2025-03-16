@@ -1,3 +1,15 @@
+/*
+ * Copyright (c) 2022 Winsider Seminars & Solutions, Inc.  All rights reserved.
+ *
+ * This file is part of System Informer.
+ *
+ * Authors:
+ *
+ *     wj32    2010-2016
+ *     dmex    2017-2023
+ *
+ */
+
 #ifndef PH_PHSVCCL_H
 #define PH_PHSVCCL_H
 
@@ -20,7 +32,7 @@ VOID PhSvcpFreeHeap(
 
 _Success_(return != NULL)
 PVOID PhSvcpCreateString(
-    _In_opt_ PVOID String,
+    _In_opt_ PCWSTR String,
     _In_ SIZE_T Length,
     _Out_ PPH_RELATIVE_STRINGREF StringRef
     );
@@ -39,7 +51,8 @@ NTSTATUS PhSvcCallExecuteRunAsCommand(
 
 NTSTATUS PhSvcCallUnloadDriver(
     _In_opt_ PVOID BaseAddress,
-    _In_opt_ PWSTR Name
+    _In_opt_ PCWSTR Name,
+    _In_opt_ PCWSTR FileName
     );
 
 NTSTATUS PhSvcCallControlProcess(
@@ -49,43 +62,43 @@ NTSTATUS PhSvcCallControlProcess(
     );
 
 NTSTATUS PhSvcCallControlService(
-    _In_ PWSTR ServiceName,
+    _In_ PCWSTR ServiceName,
     _In_ PHSVC_API_CONTROLSERVICE_COMMAND Command
     );
 
 NTSTATUS PhSvcCallCreateService(
-    _In_ PWSTR ServiceName,
-    _In_opt_ PWSTR DisplayName,
+    _In_ PCWSTR ServiceName,
+    _In_opt_ PCWSTR DisplayName,
     _In_ ULONG ServiceType,
     _In_ ULONG StartType,
     _In_ ULONG ErrorControl,
-    _In_opt_ PWSTR BinaryPathName,
-    _In_opt_ PWSTR LoadOrderGroup,
+    _In_opt_ PCWSTR BinaryPathName,
+    _In_opt_ PCWSTR LoadOrderGroup,
     _Out_opt_ PULONG TagId,
-    _In_opt_ PWSTR Dependencies,
-    _In_opt_ PWSTR ServiceStartName,
-    _In_opt_ PWSTR Password
+    _In_opt_ PCWSTR Dependencies,
+    _In_opt_ PCWSTR ServiceStartName,
+    _In_opt_ PCWSTR Password
     );
 
 // begin_phapppub
 PHAPPAPI
 NTSTATUS PhSvcCallChangeServiceConfig(
-    _In_ PWSTR ServiceName,
+    _In_ PCWSTR ServiceName,
     _In_ ULONG ServiceType,
     _In_ ULONG StartType,
     _In_ ULONG ErrorControl,
-    _In_opt_ PWSTR BinaryPathName,
-    _In_opt_ PWSTR LoadOrderGroup,
+    _In_opt_ PCWSTR BinaryPathName,
+    _In_opt_ PCWSTR LoadOrderGroup,
     _Out_opt_ PULONG TagId,
-    _In_opt_ PWSTR Dependencies,
-    _In_opt_ PWSTR ServiceStartName,
-    _In_opt_ PWSTR Password,
-    _In_opt_ PWSTR DisplayName
+    _In_opt_ PCWSTR Dependencies,
+    _In_opt_ PCWSTR ServiceStartName,
+    _In_opt_ PCWSTR Password,
+    _In_opt_ PCWSTR DisplayName
     );
 
 PHAPPAPI
 NTSTATUS PhSvcCallChangeServiceConfig2(
-    _In_ PWSTR ServiceName,
+    _In_ PCWSTR ServiceName,
     _In_ ULONG InfoLevel,
     _In_ PVOID Info
     );
@@ -133,12 +146,12 @@ NTSTATUS PhSvcCallSendMessage(
 // end_phapppub
 
 NTSTATUS PhSvcCallCreateProcessIgnoreIfeoDebugger(
-    _In_ PWSTR FileName,
-    _In_opt_ PWSTR CommandLine
+    _In_ PCWSTR FileName,
+    _In_opt_ PCWSTR CommandLine
     );
 
 NTSTATUS PhSvcCallSetServiceSecurity(
-    _In_ PWSTR ServiceName,
+    _In_ PCWSTR ServiceName,
     _In_ SECURITY_INFORMATION SecurityInformation,
     _In_ PSECURITY_DESCRIPTOR SecurityDescriptor
     );

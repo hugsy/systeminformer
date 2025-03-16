@@ -17,6 +17,7 @@
 #include <phapppub.h>
 #include <phappresource.h>
 #include <settings.h>
+#include <searchbox.h>
 #include <mapldr.h>
 
 #include "resource.h"
@@ -99,14 +100,6 @@ HICON WepGetWindowIcon(
     );
 
 // utils
-
-HWND WeGetMainWindowHandle(
-    VOID
-    );
-
-PVOID WeGetProcedureAddress(
-    _In_ PCSTR Name
-    );
 
 VOID WeInvertWindowBorder(
     _In_ HWND hWnd

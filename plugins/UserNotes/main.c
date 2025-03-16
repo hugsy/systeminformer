@@ -13,7 +13,9 @@
 #include "usernotes.h"
 #include <toolstatusintf.h>
 #include <commdlg.h>
+#include <d3dkmthk.h>
 #include <mapimg.h>
+#include <mapldr.h>
 
 static PPH_PLUGIN PluginInstance;
 static PH_CALLBACK_REGISTRATION PluginLoadCallbackRegistration;
@@ -259,7 +261,7 @@ VOID InitializeDbPath(
     VOID
     )
 {
-    if (ProcessHacker_IsPortableMode())
+    if (SystemInformer_IsPortableMode())
     {
         PPH_STRING fileName;
 
@@ -408,11 +410,11 @@ HRESULT CALLBACK TaskDialogBootstrapCallback(
 
     switch (uMsg)
     {
-    case TDN_CREATED:
+    case TDN_DIALOG_CONSTRUCTED:
         {
             context->WindowHandle = hwndDlg;
 
-            PhSetApplicationWindowIcon(hwndDlg);
+            PhSetApplicationWindowIconEx(hwndDlg, PhGetWindowDpi(hwndDlg));
         }
         break;
     case TDN_BUTTON_CLICKED:
@@ -449,7 +451,7 @@ HRESULT CALLBACK TaskDialogBootstrapCallback(
                             config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
                             config.dwCommonButtons = TDCBF_CLOSE_BUTTON;
                             config.pszMainIcon = TD_ERROR_ICON;
-                            config.pszWindowTitle = L"System Informer";
+                            config.pszWindowTitle = SystemInformer_GetWindowName();
                             config.pszMainInstruction = L"Unable to update the IFEO key for priority.";
                             config.cxWidth = 200;
 
@@ -458,7 +460,7 @@ HRESULT CALLBACK TaskDialogBootstrapCallback(
                                 config.pszContent = PhGetString(context->StatusMessage);
                             }
 
-                            SendMessage(hwndDlg, TDM_NAVIGATE_PAGE, 0, (LPARAM)&config);
+                            PhTaskDialogNavigatePage(hwndDlg, &config);
                             return S_FALSE;
                         }
                     }
@@ -492,7 +494,7 @@ HRESULT CALLBACK TaskDialogBootstrapCallback(
                             config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
                             config.dwCommonButtons = TDCBF_CLOSE_BUTTON;
                             config.pszMainIcon = TD_ERROR_ICON;
-                            config.pszWindowTitle = L"System Informer";
+                            config.pszWindowTitle = SystemInformer_GetWindowName();
                             config.pszMainInstruction = L"Unable to update the IFEO key for priority.";
                             config.cxWidth = 200;
 
@@ -501,7 +503,7 @@ HRESULT CALLBACK TaskDialogBootstrapCallback(
                                 config.pszContent = PhGetString(context->StatusMessage);
                             }
 
-                            SendMessage(hwndDlg, TDM_NAVIGATE_PAGE, 0, (LPARAM)&config);
+                            PhTaskDialogNavigatePage(hwndDlg, &config);
                             return S_FALSE;
                         }
                     }
@@ -535,7 +537,7 @@ HRESULT CALLBACK TaskDialogBootstrapCallback(
                             config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
                             config.dwCommonButtons = TDCBF_CLOSE_BUTTON;
                             config.pszMainIcon = TD_ERROR_ICON;
-                            config.pszWindowTitle = L"System Informer";
+                            config.pszWindowTitle = SystemInformer_GetWindowName();
                             config.pszMainInstruction = L"Unable to update the IFEO key for priority.";
                             config.cxWidth = 200;
 
@@ -544,7 +546,7 @@ HRESULT CALLBACK TaskDialogBootstrapCallback(
                                 config.pszContent = PhGetString(context->StatusMessage);
                             }
 
-                            SendMessage(hwndDlg, TDM_NAVIGATE_PAGE, 0, (LPARAM)&config);
+                            PhTaskDialogNavigatePage(hwndDlg, &config);
                             return S_FALSE;
                         }
                     }
@@ -646,7 +648,7 @@ VOID ShowProcessPriorityDialog(
         config.nDefaultRadioButton = PHAPP_ID_PRIORITY_NORMAL;
     }
 
-    TaskDialogIndirect(&config, NULL, NULL, NULL);
+    PhShowTaskDialog(&config, NULL, NULL, NULL);
 
     PhFree(context);
 }
@@ -723,7 +725,7 @@ VOID ShowProcessIoPriorityDialog(
         config.nDefaultRadioButton = PHAPP_ID_IOPRIORITY_NORMAL;
     }
 
-    TaskDialogIndirect(&config, NULL, NULL, NULL);
+    PhShowTaskDialog(&config, NULL, NULL, NULL);
 
     PhFree(context);
 }
@@ -803,9 +805,144 @@ VOID ShowProcessPagePriorityDialog(
         config.nDefaultRadioButton = PHAPP_ID_PAGEPRIORITY_NORMAL;
     }
 
-    TaskDialogIndirect(&config, NULL, NULL, NULL);
+    PhShowTaskDialog(&config, NULL, NULL, NULL);
 
     PhFree(context);
+}
+
+
+NTSTATUS PhD3DKMTGetProcessSchedulingPriorityClass(
+    _In_ HANDLE ProcessHandle,
+    _Out_ D3DKMT_SCHEDULINGPRIORITYCLASS* SchedulingPriorityClass
+    )
+{
+    static __typeof__(&D3DKMTGetProcessSchedulingPriorityClass) D3DKMTGetProcessSchedulingPriorityClass_I = NULL;
+    static PH_INITONCE initOnce = PH_INITONCE_INIT;
+
+    if (PhBeginInitOnce(&initOnce))
+    {
+        PVOID baseAddress;
+
+        if (baseAddress = PhLoadLibrary(L"gdi32.dll")) // win32u.dll
+        {
+            D3DKMTGetProcessSchedulingPriorityClass_I = PhGetProcedureAddress(baseAddress, "D3DKMTGetProcessSchedulingPriorityClass", 0);
+        }
+
+        PhEndInitOnce(&initOnce);
+    }
+
+    if (!D3DKMTGetProcessSchedulingPriorityClass_I)
+        return FALSE;
+
+    return D3DKMTGetProcessSchedulingPriorityClass_I(ProcessHandle, SchedulingPriorityClass);
+}
+
+NTSTATUS PhD3DKMTSetProcessSchedulingPriorityClass(
+    _In_ HANDLE ProcessHandle,
+    _In_ D3DKMT_SCHEDULINGPRIORITYCLASS SchedulingPriorityClass
+    )
+{
+    static __typeof__(&D3DKMTSetProcessSchedulingPriorityClass) D3DKMTSetProcessSchedulingPriorityClass_I = NULL;
+    static PH_INITONCE initOnce = PH_INITONCE_INIT;
+
+    if (PhBeginInitOnce(&initOnce))
+    {
+        PVOID baseAddress;
+
+        if (baseAddress = PhLoadLibrary(L"gdi32.dll")) // win32u.dll
+        {
+            D3DKMTSetProcessSchedulingPriorityClass_I = PhGetProcedureAddress(baseAddress, "D3DKMTSetProcessSchedulingPriorityClass", 0);
+        }
+
+        PhEndInitOnce(&initOnce);
+    }
+
+    if (!D3DKMTSetProcessSchedulingPriorityClass_I)
+        return FALSE;
+
+    return D3DKMTSetProcessSchedulingPriorityClass_I(ProcessHandle, SchedulingPriorityClass);
+}
+
+VOID ShowProcessD3DKMTPriorityDialog(
+    _In_ PPH_PLUGIN_MENU_ITEM MenuItem,
+    _In_ PPH_PROCESS_ITEM ProcessItem
+    )
+{
+    D3DKMT_SCHEDULINGPRIORITYCLASS priorityClass;
+    NTSTATUS status;
+    HANDLE processHandle;
+
+    status = PhOpenProcess(
+        &processHandle,
+        PROCESS_SET_INFORMATION,
+        ProcessItem->ProcessId
+        );
+
+    if (NT_SUCCESS(status))
+    {
+        status = PhD3DKMTGetProcessSchedulingPriorityClass(processHandle, &priorityClass);
+        NtClose(processHandle);
+    }
+
+    if (NT_SUCCESS(status))
+    {
+        static TASKDIALOG_BUTTON TaskDialogRadioButtonArray[] =
+        {
+            { D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME, L"Realtime" },
+            { D3DKMT_SCHEDULINGPRIORITYCLASS_HIGH, L"High" },
+            { D3DKMT_SCHEDULINGPRIORITYCLASS_ABOVE_NORMAL, L"Above normal" },
+            { D3DKMT_SCHEDULINGPRIORITYCLASS_NORMAL, L"Normal" },
+            { D3DKMT_SCHEDULINGPRIORITYCLASS_BELOW_NORMAL, L"Below normal" },
+            { D3DKMT_SCHEDULINGPRIORITYCLASS_IDLE, L"Idle" },
+        };
+        static TASKDIALOG_BUTTON TaskDialogButtonArray[] =
+        {
+            { IDYES, L"Save" },
+            { IDCANCEL, L"Cancel" },
+        };
+        TASKDIALOGCONFIG config;
+        ULONG selectedButton = 0;
+
+        memset(&config, 0, sizeof(TASKDIALOGCONFIG));
+        config.cbSize = sizeof(TASKDIALOGCONFIG);
+        config.dwFlags = TDF_USE_HICON_MAIN | TDF_ALLOW_DIALOG_CANCELLATION | TDF_CAN_BE_MINIMIZED | TDF_ENABLE_HYPERLINKS | TDF_POSITION_RELATIVE_TO_WINDOW;
+        config.hMainIcon = PhGetApplicationIcon(FALSE);
+        config.pszWindowTitle = L"D3DKMT scheduling priority";
+        config.pszMainInstruction = L"Select the graphics scheduling priority.";
+        config.pszContent = L"Note: Realtime priority requires the User has the SeIncreaseBasePriorityPrivilege or the process running as Administrator.";
+        config.nDefaultButton = IDCANCEL;
+        config.nDefaultRadioButton = priorityClass;
+        config.pRadioButtons = TaskDialogRadioButtonArray;
+        config.cRadioButtons = RTL_NUMBER_OF(TaskDialogRadioButtonArray);
+        config.pButtons = TaskDialogButtonArray;
+        config.cButtons = RTL_NUMBER_OF(TaskDialogButtonArray);
+        config.hwndParent = MenuItem->OwnerWindow;
+        config.cxWidth = 200;
+
+        if (PhShowTaskDialog(&config, NULL, &selectedButton, NULL))
+        {
+            status = PhOpenProcess(
+                &processHandle,
+                PROCESS_SET_INFORMATION,
+                ProcessItem->ProcessId
+                );
+
+            if (NT_SUCCESS(status))
+            {
+                status = PhD3DKMTSetProcessSchedulingPriorityClass(processHandle, selectedButton);
+                NtClose(processHandle);
+            }
+
+            if (!NT_SUCCESS(status))
+            {
+                PhShowStatus(MenuItem->OwnerWindow, L"Unable to update graphics scheduling priority", status, 0);
+            }
+        }
+    }
+    else
+    {
+        PhShowStatus(MenuItem->OwnerWindow, L"Unable to query graphics scheduling priority", status, 0);
+    }
 }
 
 VOID NTAPI MenuItemCallback(
@@ -840,7 +977,7 @@ VOID NTAPI MenuItemCallback(
 
                     if (NT_SUCCESS(status))
                     {
-                        PhShowInformation(menuItem->OwnerWindow, L"Successfully deleted the IFEO key.", status, 0);
+                        PhShowInformation2(menuItem->OwnerWindow, L"Successfully deleted the IFEO key.", L"%s", L"");
                     }
                     else
                     {
@@ -877,7 +1014,7 @@ VOID NTAPI MenuItemCallback(
 
                     if (NT_SUCCESS(status))
                     {
-                        PhShowInformation(menuItem->OwnerWindow, L"Successfully deleted the IFEO key.", status, 0);
+                        PhShowInformation2(menuItem->OwnerWindow, L"Successfully deleted the IFEO key.", L"%s", L"");
                     }
                     else
                     {
@@ -914,7 +1051,7 @@ VOID NTAPI MenuItemCallback(
 
                     if (NT_SUCCESS(status))
                     {
-                        PhShowInformation(menuItem->OwnerWindow, L"Successfully deleted the IFEO key.", status, 0);
+                        PhShowInformation2(menuItem->OwnerWindow, L"Successfully deleted the IFEO key.", L"%s", L"");
                     }
                     else
                     {
@@ -955,7 +1092,7 @@ VOID NTAPI MenuItemCallback(
 
                 if (processItem->QueryHandle)
                 {
-                    status = PhGetProcessPriority(processItem->QueryHandle, &priorityClass);
+                    status = PhGetProcessPriorityClass(processItem->QueryHandle, &priorityClass);
                 }
 
                 if (NT_SUCCESS(status))
@@ -991,7 +1128,7 @@ VOID NTAPI MenuItemCallback(
 
                     if (processItem->QueryHandle)
                     {
-                        status = PhGetProcessPriority(processItem->QueryHandle, &priorityClass);
+                        status = PhGetProcessPriorityClass(processItem->QueryHandle, &priorityClass);
                     }
 
                     if (NT_SUCCESS(status))
@@ -1664,6 +1801,11 @@ VOID NTAPI MenuItemCallback(
             }
         }
         break;
+    case PROCESS_D3DKMT_ID:
+        {
+            ShowProcessD3DKMTPriorityDialog(menuItem, processItem);
+        }
+        break;
     }
 
     PhDereferenceObject(processItem);
@@ -1693,27 +1835,29 @@ VOID NTAPI MenuHookCallback(
             ULONG numberOfProcesses;
             ULONG i;
 
-            PhGetSelectedProcessItems(&processes, &numberOfProcesses);
-            LockDb();
-
-            for (i = 0; i < numberOfProcesses; i++)
+            if (PhGetSelectedProcessItems(&processes, &numberOfProcesses))
             {
-                PDB_OBJECT object;
+                LockDb();
 
-                if (object = FindDbObjectForProcess(processes[i], INTENT_PROCESS_PRIORITY_CLASS))
+                for (i = 0; i < numberOfProcesses; i++)
                 {
-                    ULONG newPriorityClass = GetPriorityClassFromId(id);
+                    PDB_OBJECT object;
 
-                    if (object->PriorityClass != newPriorityClass)
+                    if (object = FindDbObjectForProcess(processes[i], INTENT_PROCESS_PRIORITY_CLASS))
                     {
-                        object->PriorityClass = newPriorityClass;
-                        changed = TRUE;
+                        ULONG newPriorityClass = GetPriorityClassFromId(id);
+
+                        if (object->PriorityClass != newPriorityClass)
+                        {
+                            object->PriorityClass = newPriorityClass;
+                            changed = TRUE;
+                        }
                     }
                 }
-            }
 
-            UnlockDb();
-            PhFree(processes);
+                UnlockDb();
+                PhFree(processes);
+            }
 
             if (changed)
                 SaveDb();
@@ -1729,27 +1873,29 @@ VOID NTAPI MenuHookCallback(
             ULONG numberOfProcesses;
             ULONG i;
 
-            PhGetSelectedProcessItems(&processes, &numberOfProcesses);
-            LockDb();
-
-            for (i = 0; i < numberOfProcesses; i++)
+            if (PhGetSelectedProcessItems(&processes, &numberOfProcesses))
             {
-                PDB_OBJECT object;
+                LockDb();
 
-                if (object = FindDbObjectForProcess(processes[i], INTENT_PROCESS_IO_PRIORITY))
+                for (i = 0; i < numberOfProcesses; i++)
                 {
-                    ULONG newIoPriorityPlusOne = GetIoPriorityFromId(id) + 1;
+                    PDB_OBJECT object;
 
-                    if (object->IoPriorityPlusOne != newIoPriorityPlusOne)
+                    if (object = FindDbObjectForProcess(processes[i], INTENT_PROCESS_IO_PRIORITY))
                     {
-                        object->IoPriorityPlusOne = newIoPriorityPlusOne;
-                        changed = TRUE;
+                        ULONG newIoPriorityPlusOne = GetIoPriorityFromId(id) + 1;
+
+                        if (object->IoPriorityPlusOne != newIoPriorityPlusOne)
+                        {
+                            object->IoPriorityPlusOne = newIoPriorityPlusOne;
+                            changed = TRUE;
+                        }
                     }
                 }
-            }
 
-            UnlockDb();
-            PhFree(processes);
+                UnlockDb();
+                PhFree(processes);
+            }
 
             if (changed)
                 SaveDb();
@@ -1766,27 +1912,29 @@ VOID NTAPI MenuHookCallback(
             ULONG numberOfProcesses;
             ULONG i;
 
-            PhGetSelectedProcessItems(&processes, &numberOfProcesses);
-            LockDb();
-
-            for (i = 0; i < numberOfProcesses; i++)
+            if (PhGetSelectedProcessItems(&processes, &numberOfProcesses))
             {
-                PDB_OBJECT object;
+                LockDb();
 
-                if (object = FindDbObjectForProcess(processes[i], INTENT_PROCESS_PAGEPRIORITY))
+                for (i = 0; i < numberOfProcesses; i++)
                 {
-                    ULONG newPagePriorityPlusOne = GetPagePriorityFromId(id) + 1;
+                    PDB_OBJECT object;
 
-                    if (object->PagePriorityPlusOne != newPagePriorityPlusOne)
+                    if (object = FindDbObjectForProcess(processes[i], INTENT_PROCESS_PAGEPRIORITY))
                     {
-                        object->PagePriorityPlusOne = newPagePriorityPlusOne;
-                        changed = TRUE;
+                        ULONG newPagePriorityPlusOne = GetPagePriorityFromId(id) + 1;
+
+                        if (object->PagePriorityPlusOne != newPagePriorityPlusOne)
+                        {
+                            object->PagePriorityPlusOne = newPagePriorityPlusOne;
+                            changed = TRUE;
+                        }
                     }
                 }
-            }
 
-            UnlockDb();
-            PhFree(processes);
+                UnlockDb();
+                PhFree(processes);
+            }
 
             if (changed)
                 SaveDb();
@@ -1997,7 +2145,7 @@ VOID TreeNewMessageCallback(
                     }
                     break;
                 }
-    
+
             }
             else if (message->TreeNewHandle == ServiceTreeNewHandle)
             {
@@ -2255,6 +2403,7 @@ VOID ProcessMenuInitializingCallback(
     PPH_EMENU_ITEM miscMenuItem;
     PPH_EMENU_ITEM collapseMenuItem;
     PPH_EMENU_ITEM highlightMenuItem;
+    PPH_EMENU_ITEM gdiHandlesMenuItem;
     PDB_OBJECT object;
 
     if (menuInfo->u.Process.NumberOfProcesses != 1)
@@ -2276,6 +2425,12 @@ VOID ProcessMenuInitializingCallback(
     PhInsertEMenuItem(miscMenuItem, collapseMenuItem = PhPluginCreateEMenuItem(PluginInstance, 0, PROCESS_COLLAPSE_ID, L"Col&lapse by default", NULL), 0);
     PhInsertEMenuItem(miscMenuItem, highlightMenuItem = PhPluginCreateEMenuItem(PluginInstance, 0, PROCESS_HIGHLIGHT_ID, L"Highligh&t", UlongToPtr(highlightPresent)), 1);
     PhInsertEMenuItem(miscMenuItem, PhCreateEMenuSeparator(), 2);
+
+    if (gdiHandlesMenuItem = PhFindEMenuItem(miscMenuItem, 0, NULL, PHAPP_ID_MISCELLANEOUS_GDIHANDLES))
+    {
+        ULONG index = PhIndexOfEMenuItem(miscMenuItem, gdiHandlesMenuItem);
+        PhInsertEMenuItem(miscMenuItem, PhPluginCreateEMenuItem(PluginInstance, 0, PROCESS_D3DKMT_ID, L"Graphics priority...", NULL), index + 1);
+    }
 
     LockDb();
 
@@ -2345,7 +2500,7 @@ VOID ProcessTreeNewInitializingCallback(
     affinity.Text = L"Affinity";
     affinity.Width = 120;
     affinity.Alignment = PH_ALIGN_LEFT;
-        
+
     PhPluginAddTreeNewColumn(PluginInstance, info->CmData, &column, COMMENT_COLUMN_ID, NULL, ProcessCommentSortFunction);
     PhPluginAddTreeNewColumn(PluginInstance, info->CmData, &affinity, AFFINITY_COLUMN_ID, NULL, ProcessAffinitySortFunction);
 }
@@ -2749,8 +2904,8 @@ LOGICAL DllMain(
             return FALSE;
 
         info->DisplayName = L"User Notes";
-        info->Author = L"dmex, wj32";
-        info->Description = L"Allows the user to add comments for processes and services, save process priority and affinity, highlight individual processes and show processes collapsed by default.";
+        info->Description = L"Allows the user to add comments for processes and services,"
+            L" save process priority and affinity, highlight individual processes and show processes collapsed by default.";
 
         PhRegisterCallback(
             PhGetPluginCallback(PluginInstance, PluginCallbackLoad),

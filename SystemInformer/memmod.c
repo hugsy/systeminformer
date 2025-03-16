@@ -21,6 +21,7 @@ typedef struct _PH_IMAGE_MODIFIED_DIALOG_CONTEXT
     LONG RefCount;
 
     HWND WindowHandle;
+    HWND StatusHandle;
     HWND ListViewHandle;
     HWND ParentWindowHandle;
     PPH_PROCESS_ITEM ProcessItem;
@@ -37,6 +38,7 @@ typedef struct _PH_IMAGE_MODIFIED_DIALOG_CONTEXT
     PPH_SYMBOL_PROVIDER SymbolProvider;
     SINGLE_LIST_ENTRY ResultListHead;
     PH_QUEUED_LOCK ResultListLock;
+    PH_CALLBACK_REGISTRATION SymbolProviderEventRegistration;
 } PH_IMAGE_MODIFIED_DIALOG_CONTEXT, *PPH_IMAGE_MODIFIED_DIALOG_CONTEXT;
 
 typedef struct _PH_IMAGE_MAPPED_BASE_ENTRY
@@ -138,7 +140,7 @@ NTSTATUS NTAPI PhpEnumVirtualMemoryAttributesCallback(
     for (ULONG_PTR i = 0; i < NumberOfEntries; i++)
     {
         PMEMORY_WORKING_SET_EX_INFORMATION page = &Blocks[i];
-        PMEMORY_WORKING_SET_EX_BLOCK block = &page->u1.VirtualAttributes;
+        PMEMORY_WORKING_SET_EX_BLOCK block = &page->VirtualAttributes;
 
         if (!block->SharedOriginal)
         {
@@ -262,7 +264,7 @@ static NTSTATUS PhpLimitedSymbolProviderLookupFunction(
                 PhLoadFileNameSymbolProvider(
                     result->Context->SymbolProvider,
                     entry->FileName,
-                    (ULONG64)entry->ImageBase,
+                    entry->ImageBase,
                     (ULONG)entry->SizeOfImage
                     );
             }
@@ -284,7 +286,7 @@ static NTSTATUS PhpLimitedSymbolProviderLookupFunction(
 
     result->Symbol = PhGetSymbolFromAddress(
         result->Context->SymbolProvider,
-        (ULONG64)result->Address,
+        result->Address,
         NULL,
         &result->FileName,
         NULL,
@@ -368,10 +370,10 @@ static VOID PhpProcessSymbolLookupResults(
 // Get a basic symbol name (module+offset).
 static PPH_STRING PhpLimitedSymbolProviderGetBasicSymbol(
     _In_ PPH_SYMBOL_PROVIDER SymbolProvider,
-    _In_ ULONG64 Address
+    _In_ PVOID Address
     )
 {
-    ULONG64 modBase;
+    PVOID modBase;
     PPH_STRING fileName = NULL;
     PPH_STRING baseName = NULL;
     PPH_STRING symbol;
@@ -381,7 +383,7 @@ static PPH_STRING PhpLimitedSymbolProviderGetBasicSymbol(
     if (!fileName)
     {
         symbol = PhCreateStringEx(NULL, PH_PTR_STR_LEN * sizeof(WCHAR));
-        PhPrintPointer(symbol->Buffer, (PVOID)Address);
+        PhPrintPointer(symbol->Buffer, Address);
         PhTrimToNullTerminatorString(symbol);
     }
     else
@@ -392,7 +394,7 @@ static PPH_STRING PhpLimitedSymbolProviderGetBasicSymbol(
 
         PhInitFormatSR(&format[0], baseName->sr);
         PhInitFormatS(&format[1], L"+0x");
-        PhInitFormatIX(&format[2], (ULONG_PTR)(Address - modBase));
+        PhInitFormatIX(&format[2], (ULONG_PTR)Address - (ULONG_PTR)modBase);
 
         symbol = PhFormat(format, 3, baseName->Length + 6 + 32);
     }
@@ -416,7 +418,6 @@ NTSTATUS PhCheckProcessImagesForTampering(
 
     status = PhEnumVirtualMemory(
         Context->ProcessHandle,
-        NULL,
         PhEnumImagesForTamperingCallback,
         Context
         );
@@ -430,7 +431,6 @@ NTSTATUS PhCheckProcessImagesForTampering(
 
         status = PhEnumVirtualMemoryAttributes( // PhCheckImagePagesForTampering
             Context->ProcessHandle,
-            NULL,
             entry->ImageBase,
             entry->SizeOfImage,
             PhpEnumVirtualMemoryAttributesCallback,
@@ -485,6 +485,35 @@ NTSTATUS PhCheckProcessImagesForTampering(
     return status;
 }
 
+VOID PhPageModifiedSymbolProviderEventCallback(
+    _In_ PVOID Parameter,
+    _In_ PVOID Context
+)
+{
+    PPH_SYMBOL_EVENT_DATA event = Parameter;
+    PPH_IMAGE_MODIFIED_DIALOG_CONTEXT context = Context;
+    PPH_STRING statusMessage = NULL;
+
+    switch (event->EventType)
+    {
+    case PH_SYMBOL_EVENT_TYPE_LOAD_START:
+        statusMessage = PhReferenceObject(event->EventMessage);
+        break;
+    case PH_SYMBOL_EVENT_TYPE_LOAD_END:
+        statusMessage = PhReferenceEmptyString();
+        break;
+    case PH_SYMBOL_EVENT_TYPE_PROGRESS:
+        statusMessage = PhReferenceObject(event->EventMessage);
+        break;
+    }
+
+    if (statusMessage)
+    {
+        PhSetWindowText(context->StatusHandle, PhGetStringOrEmpty(statusMessage));
+        PhDereferenceObject(statusMessage);
+    }
+}
+
 INT_PTR CALLBACK PhPageModifiedDlgProc(
     _In_ HWND WindowHandle,
     _In_ UINT WindowMessage,
@@ -514,6 +543,7 @@ INT_PTR CALLBACK PhPageModifiedDlgProc(
         {
             context->WindowHandle = WindowHandle;
             context->ListViewHandle = GetDlgItem(WindowHandle, IDC_LIST);
+            context->StatusHandle = GetDlgItem(WindowHandle, IDC_STATE);
 
             PhSetApplicationWindowIcon(WindowHandle);
 
@@ -531,10 +561,11 @@ INT_PTR CALLBACK PhPageModifiedDlgProc(
 
             PhInitializeLayoutManager(&context->LayoutManager, WindowHandle);
             PhAddLayoutItem(&context->LayoutManager, context->ListViewHandle, NULL, PH_ANCHOR_ALL);
+            PhAddLayoutItem(&context->LayoutManager, context->StatusHandle, NULL, PH_ANCHOR_BOTTOM | PH_ANCHOR_LEFT | PH_ANCHOR_RIGHT | PH_LAYOUT_FORCE_INVALIDATE);
             PhAddLayoutItem(&context->LayoutManager, GetDlgItem(WindowHandle, IDC_REFRESH), NULL, PH_ANCHOR_BOTTOM | PH_ANCHOR_RIGHT);
             PhAddLayoutItem(&context->LayoutManager, GetDlgItem(WindowHandle, IDOK), NULL, PH_ANCHOR_BOTTOM | PH_ANCHOR_RIGHT);
 
-            if (PhGetIntegerPairSetting(L"MemoryModifiedWindowPosition").X)
+            if (PhValidWindowPlacementFromSetting(L"MemoryModifiedWindowPosition"))
                 PhLoadWindowPlacementFromSetting(L"MemoryModifiedWindowPosition", L"MemoryModifiedWindowSize", WindowHandle);
             else
                 PhCenterWindow(WindowHandle, context->ParentWindowHandle);
@@ -569,6 +600,14 @@ INT_PTR CALLBACK PhPageModifiedDlgProc(
                     EndDialog(WindowHandle, IDCANCEL);
                 }
             }
+
+            PhSetWindowText(context->StatusHandle, L"");
+            PhRegisterCallback(
+                &PhSymbolEventCallback,
+                PhPageModifiedSymbolProviderEventCallback,
+                context,
+                &context->SymbolProviderEventRegistration
+                );
         }
         break;
     case WM_DESTROY:
@@ -584,6 +623,11 @@ INT_PTR CALLBACK PhPageModifiedDlgProc(
             PhDeleteLayoutManager(&context->LayoutManager);
 
             PhpLimitedSymbolDereferenceContext(context);
+
+            PhUnregisterCallback(
+                &PhSymbolEventCallback,
+                &context->SymbolProviderEventRegistration
+                );
 
             PhRemoveWindowContext(WindowHandle, PH_WINDOW_CONTEXT_DEFAULT);
         }

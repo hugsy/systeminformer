@@ -32,7 +32,7 @@
 typedef struct _ANALYZE_WAIT_CONTEXT
 {
     BOOLEAN Found;
-    BOOLEAN IsWow64;
+    BOOLEAN IsWow64Process;
     HANDLE ProcessId;
     HANDLE ThreadId;
     HANDLE ProcessHandle;
@@ -69,7 +69,7 @@ PPH_STRING PhpaGetHandleString(
 
 VOID PhpGetWfmoInformation(
     _In_ HANDLE ProcessHandle,
-    _In_ BOOLEAN IsWow64,
+    _In_ BOOLEAN IsWow64Process,
     _In_ ULONG NumberOfHandles,
     _In_ PHANDLE AddressOfHandles,
     _In_ WAIT_TYPE WaitType,
@@ -165,7 +165,7 @@ VOID PhUiAnalyzeWaitThread(
     }
     else
     {
-        PhShowInformation2(hWnd, L"The thread does not appear to be waiting.", L"%s", L"");
+        PhShowInformation2(hWnd, L"Unable to analyze the thread.", L"%s", L"The thread does not appear to be waiting.");
     }
 
     PhDeleteStringBuilder(&context.StringBuilder);
@@ -267,7 +267,7 @@ BOOLEAN NTAPI PhpWalkThreadStackAnalyzeCallback(
 
     name = PhGetSymbolFromAddress(
         context->SymbolProvider,
-        (ULONG64)StackFrame->PcAddress,
+        StackFrame->PcAddress,
         NULL,
         NULL,
         NULL,
@@ -301,22 +301,22 @@ BOOLEAN NTAPI PhpWalkThreadStackAnalyzeCallback(
     {
         BOOLEAN alertable = !!StackFrame->Params[0];
         PVOID timeoutAddress = StackFrame->Params[1];
-        LARGE_INTEGER timeout;
+        LONGLONG timeout;
 
         if (NT_SUCCESS(NtReadVirtualMemory(
             context->ProcessHandle,
             timeoutAddress,
             &timeout,
-            sizeof(LARGE_INTEGER),
+            sizeof(LONGLONG),
             NULL
             )))
         {
-            if (timeout.QuadPart < 0)
+            if (timeout < 0)
             {
                 PhAppendFormatStringBuilder(
                     &context->StringBuilder,
-                    L"Thread is sleeping. Timeout: %I64u milliseconds.",
-                    -timeout.QuadPart / PH_TIMEOUT_MS
+                    L"Thread is sleeping. Timeout: %llu milliseconds.",
+                    -timeout / PH_TIMEOUT_MS
                     );
             }
             else
@@ -388,7 +388,7 @@ BOOLEAN NTAPI PhpWalkThreadStackAnalyzeCallback(
             &PhpaGetHandleString(context->ProcessHandle, handle)->sr
             );
     }
-    else if (NT_FUNC_MATCH("RemoveIoCompletion"))
+    else if (NT_FUNC_MATCH("RemoveIoCompletion") || NT_FUNC_MATCH("RemoveIoCompletionEx"))
     {
         HANDLE handle = StackFrame->Params[0];
 
@@ -523,14 +523,14 @@ BOOLEAN NTAPI PhpWalkThreadStackAnalyzeCallback(
     {
         ULONG numberOfHandles = PtrToUlong(StackFrame->Params[0]);
         PVOID addressOfHandles = StackFrame->Params[1];
-        WAIT_TYPE waitType = (WAIT_TYPE)StackFrame->Params[2];
+        WAIT_TYPE waitType = (WAIT_TYPE)PtrToUlong(StackFrame->Params[2]);
         BOOLEAN alertable = !!StackFrame->Params[3];
 
         if (numberOfHandles > MAXIMUM_WAIT_OBJECTS)
         {
             numberOfHandles = PtrToUlong(context->PrevParams[1]);
             addressOfHandles = context->PrevParams[2];
-            waitType = (WAIT_TYPE)context->PrevParams[3];
+            waitType = (WAIT_TYPE)PtrToUlong(context->PrevParams[3]);
             alertable = FALSE;
         }
 
@@ -872,7 +872,7 @@ PPH_STRING PhpaGetHandleString(
 
 VOID PhpGetWfmoInformation(
     _In_ HANDLE ProcessHandle,
-    _In_ BOOLEAN IsWow64,
+    _In_ BOOLEAN IsWow64Process,
     _In_ ULONG NumberOfHandles,
     _In_ PHANDLE AddressOfHandles,
     _In_ WAIT_TYPE WaitType,
@@ -889,7 +889,7 @@ VOID PhpGetWfmoInformation(
     if (NumberOfHandles <= MAXIMUM_WAIT_OBJECTS)
     {
 #ifdef _WIN64
-        if (IsWow64)
+        if (IsWow64Process)
         {
             ULONG handles32[MAXIMUM_WAIT_OBJECTS];
 
@@ -956,20 +956,17 @@ PPH_STRING PhpaGetSendMessageReceiver(
     )
 {
     HWND windowHandle;
-    ULONG threadId;
-    ULONG processId;
     CLIENT_ID clientId;
     PPH_STRING clientIdName;
     WCHAR windowClass[64];
     PPH_STRING windowText;
 
-    if (!PhGetSendMessageReceiver(ThreadId, &windowHandle))
+    if (!NT_SUCCESS(PhGetSendMessageReceiver(ThreadId, &windowHandle)))
         return NULL;
 
-    threadId = GetWindowThreadProcessId(windowHandle, &processId);
+    if (!NT_SUCCESS(PhGetWindowClientId(windowHandle, &clientId)))
+        return NULL;
 
-    clientId.UniqueProcess = UlongToHandle(processId);
-    clientId.UniqueThread = UlongToHandle(threadId);
     clientIdName = PH_AUTO(PhGetClientIdName(&clientId));
 
     if (!GetClassName(windowHandle, windowClass, sizeof(windowClass) / sizeof(WCHAR)))

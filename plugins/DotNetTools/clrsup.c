@@ -597,10 +597,53 @@ PDN_PROCESS_APPDOMAIN_ENTRY DnGetDotNetAppDomainDataFromAddress(
         &appdomainAddressData
         );
 
-    if (entry->Status == S_OK)
+    if (HR_SUCCESS(entry->Status))
     {
         entry->AppDomainNumber = appdomainAddressData.dwId;
         entry->AppDomainID = (ULONG64)appdomainAddressData.AppDomainPtr;
+
+        switch (appdomainAddressData.appDomainStage)
+        {
+        case STAGE_CREATING:
+            entry->AppDomainStage = PhCreateString(L"Creating");
+            break;
+        case STAGE_READYFORMANAGEDCODE:
+            entry->AppDomainStage = PhCreateString(L"ReadyForManagedCode");
+            break;
+        case STAGE_ACTIVE:
+            entry->AppDomainStage = PhCreateString(L"Active");
+            break;
+        case STAGE_OPEN:
+            entry->AppDomainStage = PhCreateString(L"Open");
+            break;
+        case STAGE_UNLOAD_REQUESTED:
+            entry->AppDomainStage = PhCreateString(L"UnloadRequested");
+            break;
+        case STAGE_EXITING:
+            entry->AppDomainStage = PhCreateString(L"Exiting");
+            break;
+        case STAGE_EXITED:
+            entry->AppDomainStage = PhCreateString(L"Exited");
+            break;
+        case STAGE_FINALIZING:
+            entry->AppDomainStage = PhCreateString(L"Finalizing");
+            break;
+        case STAGE_FINALIZED:
+            entry->AppDomainStage = PhCreateString(L"Finalized");
+            break;
+        case STAGE_HANDLETABLE_NOACCESS:
+            entry->AppDomainStage = PhCreateString(L"HandleTableNoAccess");
+            break;
+        case STAGE_CLEARED:
+            entry->AppDomainStage = PhCreateString(L"Cleared");
+            break;
+        case STAGE_COLLECTED:
+            entry->AppDomainStage = PhCreateString(L"Collected");
+            break;
+        case STAGE_CLOSED:
+            entry->AppDomainStage = PhCreateString(L"Closed");
+            break;
+        }
     }
     else
     {
@@ -759,6 +802,8 @@ VOID DnDestroyProcessDotNetAppDomainList(
 
         if (appdomain->AppDomainName)
             PhDereferenceObject(appdomain->AppDomainName);
+        if (appdomain->AppDomainStage)
+            PhDereferenceObject(appdomain->AppDomainStage);
 
         PhFree(appdomain);
     }
@@ -789,6 +834,10 @@ PPH_BYTES DnProcessAppDomainListSerialize(
 
         valueUtf8 = PhConvertUtf16ToUtf8Ex(appdomain->AppDomainName->Buffer, appdomain->AppDomainName->Length);
         PhAddJsonObject2(appdomainEntry, "AppDomainName", valueUtf8->Buffer, valueUtf8->Length);
+        PhDereferenceObject(valueUtf8);
+
+        valueUtf8 = PhConvertUtf16ToUtf8Ex(appdomain->AppDomainStage->Buffer, appdomain->AppDomainStage->Length);
+        PhAddJsonObject2(appdomainEntry, "AppDomainStage", valueUtf8->Buffer, valueUtf8->Length);
         PhDereferenceObject(valueUtf8);
 
         if (appdomain->AssemblyList)
@@ -892,6 +941,7 @@ PPH_LIST DnProcessAppDomainListDeserialize(
         appdomain->AppDomainNumber = (ULONG32)PhGetJsonValueAsUInt64(jsonArrayObject, "AppDomainNumber");
         appdomain->AppDomainID = PhGetJsonValueAsUInt64(jsonArrayObject, "AppDomainID");
         appdomain->AppDomainName = PhGetJsonValueAsString(jsonArrayObject, "AppDomainName");
+        appdomain->AppDomainStage = PhGetJsonValueAsString(jsonArrayObject, "AppDomainStage");
 
         if (jsonAssemblyArray = PhGetJsonObject(jsonArrayObject, "assemblies"))
         {
@@ -1027,7 +1077,7 @@ VOID DnGetProcessDotNetRuntimes(
         dprintf(
             "Runtime version: %S @ 0x%I64x [%S]\n",
             PhGetString(entry->RuntimeVersion),
-            entry->DllBase,
+            (ULONG_PTR)entry->DllBase,
             PhGetString(entry->FileName)
             );
 
@@ -1615,7 +1665,7 @@ ICLRDataTarget *DnCLRDataTarget_Create(
 
     dataTarget->ProcessId = ProcessId;
     dataTarget->ProcessHandle = processHandle;
-    dataTarget->IsWow64 = isWow64;
+    dataTarget->IsWow64Process = isWow64;
 
     return (ICLRDataTarget *)dataTarget;
 }
@@ -1683,7 +1733,7 @@ HRESULT STDMETHODCALLTYPE DnCLRDataTarget_GetMachineType(
     DnCLRDataTarget *this = (DnCLRDataTarget *)This;
 
 #ifdef _WIN64
-    if (!this->IsWow64)
+    if (!this->IsWow64Process)
         *machineType = IMAGE_FILE_MACHINE_AMD64;
     else
         *machineType = IMAGE_FILE_MACHINE_I386;
@@ -1702,7 +1752,7 @@ HRESULT STDMETHODCALLTYPE DnCLRDataTarget_GetPointerSize(
     DnCLRDataTarget *this = (DnCLRDataTarget *)This;
 
 #ifdef _WIN64
-    if (!this->IsWow64)
+    if (!this->IsWow64Process)
 #endif
         *pointerSize = sizeof(PVOID);
 #ifdef _WIN64
@@ -1749,7 +1799,7 @@ HRESULT STDMETHODCALLTYPE DnCLRDataTarget_GetImageBase(
     DN_CLRDT_ENUM_IMAGE_BASE_CONTEXT context;
 
     memset(&context, 0, sizeof(DN_CLRDT_ENUM_IMAGE_BASE_CONTEXT));
-    context.FullName = PhCreateString((PWSTR)imagePath);
+    context.FullName = PhCreateString(imagePath);
     context.BaseName = PhGetBaseName(context.FullName);
 
     PhEnumGenericModules(
@@ -1863,11 +1913,7 @@ HRESULT STDMETHODCALLTYPE DnCLRDataTarget_ReadVirtual(
     }
     else
     {
-        ULONG result;
-
-        result = PhNtStatusToDosError(status);
-
-        return HRESULT_FROM_WIN32(result);
+        return HRESULT_FROM_NT(status);
     }
 }
 
@@ -1915,41 +1961,34 @@ HRESULT STDMETHODCALLTYPE DnCLRDataTarget_GetThreadContext(
     _In_ ULONG32 threadID,
     _In_ ULONG32 contextFlags,
     _In_ ULONG32 contextSize,
-    _Out_ BYTE *context
+    _Out_ PVOID context
     )
 {
     NTSTATUS status;
     HANDLE threadHandle;
-    CONTEXT buffer;
+    PCONTEXT buffer;
 
     if (contextSize < sizeof(CONTEXT))
         return E_INVALIDARG;
 
-    memset(&buffer, 0, sizeof(CONTEXT));
-    buffer.ContextFlags = contextFlags;
+    buffer = PhAllocateZero(contextSize);
+    buffer->ContextFlags = contextFlags;
 
     if (NT_SUCCESS(status = PhOpenThread(&threadHandle, THREAD_GET_CONTEXT, UlongToHandle(threadID))))
     {
-        status = NtGetContextThread(threadHandle, &buffer);
+        status = PhGetContextThread(threadHandle, buffer);
         NtClose(threadHandle);
     }
 
     if (NT_SUCCESS(status))
     {
-#pragma warning(push)
-#pragma warning(disable: 6386)
-        memcpy_s(context, contextSize, &buffer, sizeof(CONTEXT));
-#pragma warning(pop)
-
+        memcpy(context, buffer, contextSize);
+        PhFree(buffer);
         return S_OK;
     }
     else
     {
-        ULONG result;
-
-        result = PhNtStatusToDosError(status);
-
-        return HRESULT_FROM_WIN32(result);
+        return HRESULT_FROM_NT(status);
     }
 }
 
@@ -1957,7 +1996,7 @@ HRESULT STDMETHODCALLTYPE DnCLRDataTarget_SetThreadContext(
     _In_ ICLRDataTarget *This,
     _In_ ULONG32 threadID,
     _In_ ULONG32 contextSize,
-    _In_ BYTE *context
+    _In_ PVOID context
     )
 {
     return E_NOTIMPL;

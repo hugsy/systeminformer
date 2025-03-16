@@ -16,6 +16,7 @@
 #include <hndlinfo.h>
 #include <kphuser.h>
 #include <settings.h>
+#include <phsettings.h>
 #include <workqueue.h>
 
 #include <extmgri.h>
@@ -136,10 +137,11 @@ PPH_HANDLE_ITEM PhCreateHandleItem(
 
     if (Handle)
     {
-        handleItem->Handle = (HANDLE)Handle->HandleValue;
         handleItem->Object = Handle->Object;
+        handleItem->ProcessId = Handle->UniqueProcessId;
+        handleItem->Handle = Handle->HandleValue;
         handleItem->Attributes = Handle->HandleAttributes;
-        handleItem->GrantedAccess = (ACCESS_MASK)Handle->GrantedAccess;
+        handleItem->GrantedAccess = Handle->GrantedAccess;
         handleItem->TypeIndex = Handle->ObjectTypeIndex;
 
         PhPrintPointer(handleItem->HandleString, (PVOID)handleItem->Handle);
@@ -309,12 +311,9 @@ NTSTATUS PhpCreateHandleItemFunction(
         NULL
         );
 
-    // HACK: Some security products block NtQueryObject with ObjectTypeInformation and return an invalid type
-    // so we need to lookup the TypeName using the TypeIndex. We should improve PhGetHandleInformationEx for this case
-    // but for now we'll preserve backwards compat by doing the lookup here. (dmex)
     if (PhIsNullOrEmptyString(handleItem->TypeName))
     {
-        PhMoveReference(&handleItem->TypeName, PhGetObjectTypeName(handleItem->TypeIndex));
+        PhMoveReference(&handleItem->TypeName, PhGetObjectTypeIndexName(handleItem->TypeIndex));
     }
 
     if (handleItem->TypeName)
@@ -344,11 +343,9 @@ VOID PhHandleProviderUpdate(
     static PH_INITONCE initOnce = PH_INITONCE_INIT;
     static ULONG fileObjectTypeIndex = ULONG_MAX;
     PPH_HANDLE_PROVIDER handleProvider = (PPH_HANDLE_PROVIDER)Object;
-    BOOLEAN enableHandleSnapshot = !!PhGetIntegerSetting(L"EnableHandleSnapshot");
     PSYSTEM_HANDLE_INFORMATION_EX handleInfo;
-    BOOLEAN filterNeeded;
     PSYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handles;
-    ULONG numberOfHandles;
+    ULONG_PTR numberOfHandles;
     ULONG i;
     PH_HASHTABLE_ENUM_CONTEXT enumContext;
     PPH_KEY_VALUE_PAIR handlePair;
@@ -356,18 +353,15 @@ VOID PhHandleProviderUpdate(
     PH_WORK_QUEUE workQueue;
     KPH_LEVEL level;
 
-    if (!NT_SUCCESS(handleProvider->RunStatus = PhEnumHandlesGeneric(
+    handleProvider->RunStatus = PhEnumHandlesGeneric(
         handleProvider->ProcessId,
         handleProvider->ProcessHandle,
-        enableHandleSnapshot,
-        &handleInfo,
-        &filterNeeded
-        )))
-        goto UpdateExit;
+        PhCsEnableHandleSnapshot,
+        &handleInfo
+        );
 
     level = KsiLevel();
-
-    if ((level >= KphLevelMed))
+    if (level < KphLevelMed)
     {
         useWorkQueue = TRUE;
         PhInitializeWorkQueue(&workQueue, 1, 20, 1000);
@@ -379,35 +373,18 @@ VOID PhHandleProviderUpdate(
         }
     }
 
-    handles = handleInfo->Handles;
-    numberOfHandles = (ULONG)handleInfo->NumberOfHandles;
-
-    // Make a list of the relevant handles.
-    if (filterNeeded)
+    if (NT_SUCCESS(handleProvider->RunStatus))
     {
-        for (i = 0; i < numberOfHandles; i++)
-        {
-            PSYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = &handles[i];
+        handles = handleInfo->Handles;
+        numberOfHandles = handleInfo->NumberOfHandles;
 
-            if (handle->UniqueProcessId == (ULONG_PTR)handleProvider->ProcessId)
-            {
-                PhAddItemSimpleHashtable(
-                    handleProvider->TempListHashtable,
-                    (PVOID)handle->HandleValue,
-                    handle
-                    );
-            }
-        }
-    }
-    else
-    {
         for (i = 0; i < numberOfHandles; i++)
         {
             PSYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = &handles[i];
 
             PhAddItemSimpleHashtable(
                 handleProvider->TempListHashtable,
-                (PVOID)handle->HandleValue,
+                handle->HandleValue,
                 handle
                 );
         }
@@ -432,38 +409,38 @@ VOID PhHandleProviderUpdate(
 
                 tempHashtableValue = (PSYSTEM_HANDLE_TABLE_ENTRY_INFO_EX *)PhFindItemSimpleHashtable(
                     handleProvider->TempListHashtable,
-                    (PVOID)(handleItem->Handle)
+                    handleItem->Handle
                     );
 
                 if (tempHashtableValue)
                 {
-#if 0 // TODO(jxy-s) enable this on the next driver release
-                    // Also compare the object pointers to make sure a
-                    // different object wasn't re-opened with the same
-                    // handle value.
-                    if (KsiLevel() >= KphLevelMed)
+                    // Also compare the object pointers to make sure a different object wasn't
+                    // re-opened with the same handle value.
+                    if (
+                        // TODO(jxy-s): remove following line after next driver release, see commit 3a54b8329
+                        handleProvider->ProcessId != SYSTEM_PROCESS_ID &&
+                        level >= KphLevelMed && handleProvider->ProcessHandle
+                        )
                     {
                         found = NT_SUCCESS(KphCompareObjects(
                             handleProvider->ProcessHandle,
                             handleItem->Handle,
-                            (HANDLE)(*tempHashtableValue)->HandleValue
+                            (*tempHashtableValue)->HandleValue
                             ));
                     }
                     // This isn't 100% accurate as pool addresses may be re-used, but it works well.
                     else if (handleItem->Object && handleItem->Object == (*tempHashtableValue)->Object)
-#else
-                    if (handleItem->Object && handleItem->Object == (*tempHashtableValue)->Object)
-#endif
                     {
                         found = TRUE;
                     }
                     else
                     {
                         if (
-                            handleItem->Handle == (HANDLE)(*tempHashtableValue)->HandleValue &&
+                            handleItem->Handle == (*tempHashtableValue)->HandleValue &&
                             handleItem->GrantedAccess == (*tempHashtableValue)->GrantedAccess &&
                             handleItem->TypeIndex == (*tempHashtableValue)->ObjectTypeIndex &&
-                            handleItem->Attributes == (*tempHashtableValue)->HandleAttributes
+                            handleItem->Attributes == (*tempHashtableValue)->HandleAttributes &&
+                            handleItem->ProcessId == (*tempHashtableValue)->UniqueProcessId
                             )
                         {
                             found = TRUE;
@@ -490,10 +467,7 @@ VOID PhHandleProviderUpdate(
 
             for (i = 0; i < handlesToRemove->Count; i++)
             {
-                PhpRemoveHandleItem(
-                    handleProvider,
-                    (PPH_HANDLE_ITEM)handlesToRemove->Items[i]
-                    );
+                PhpRemoveHandleItem(handleProvider, handlesToRemove->Items[i]);
             }
 
             PhReleaseQueuedLockExclusive(&handleProvider->HandleHashSetLock);
@@ -510,7 +484,7 @@ VOID PhHandleProviderUpdate(
         PSYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = handlePair->Value;
         PPH_HANDLE_ITEM handleItem;
 
-        handleItem = PhpLookupHandleItem(handleProvider, (HANDLE)handle->HandleValue);
+        handleItem = PhpLookupHandleItem(handleProvider, handle->HandleValue);
 
         if (!handleItem)
         {
@@ -542,20 +516,17 @@ VOID PhHandleProviderUpdate(
                 NULL
                 );
 
-            // HACK: Some security products block NtQueryObject with ObjectTypeInformation and return an invalid type
-            // so we need to lookup the TypeName using the TypeIndex. We should improve PhGetHandleInformationEx for this case
-            // but for now we'll preserve backwards compat by doing the lookup here. (dmex)
             if (PhIsNullOrEmptyString(handleItem->TypeName))
             {
                 PPH_STRING typeName;
 
-                if (typeName = PhGetObjectTypeName(handleItem->TypeIndex))
+                if (typeName = PhGetObjectTypeIndexName(handleItem->TypeIndex))
                 {
                     PhMoveReference(&handleItem->TypeName, typeName);
                 }
             }
 
-            if (handleItem->TypeName && PhEqualString2(handleItem->TypeName, L"File", TRUE) && (level >= KphLevelMed))
+            if (handleItem->TypeName && PhEqualString2(handleItem->TypeName, L"File", TRUE) && level >= KphLevelMed)
             {
                 KPH_FILE_OBJECT_INFORMATION objectInfo;
 
@@ -615,7 +586,10 @@ VOID PhHandleProviderUpdate(
         PhDeleteWorkQueue(&workQueue);
     }
 
-    PhFree(handleInfo);
+    if (NT_SUCCESS(handleProvider->RunStatus))
+    {
+        PhFree(handleInfo);
+    }
 
     // Re-create the temporary hashtable if it got too big.
     if (handleProvider->TempListHashtable->AllocatedEntries > 8192)
@@ -628,6 +602,5 @@ VOID PhHandleProviderUpdate(
         PhClearHashtable(handleProvider->TempListHashtable);
     }
 
-UpdateExit:
     PhInvokeCallback(&handleProvider->HandleUpdatedEvent, NULL);
 }

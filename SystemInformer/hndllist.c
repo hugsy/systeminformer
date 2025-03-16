@@ -93,6 +93,7 @@ VOID PhInitializeHandleList(
     PhAddTreeNewColumn(hwnd, PHHNTLC_GRANTEDACCESS, FALSE, L"Granted access", 80, PH_ALIGN_LEFT, ULONG_MAX, 0);
     PhAddTreeNewColumn(hwnd, PHHNTLC_ORIGINALNAME, FALSE, L"Original name", 200, PH_ALIGN_LEFT, ULONG_MAX, 0);
     PhAddTreeNewColumnEx(hwnd, PHHNTLC_FILESHAREACCESS, FALSE, L"File share access", 50, PH_ALIGN_LEFT, ULONG_MAX, 0, TRUE);
+    PhAddTreeNewColumn(hwnd, PHHNTLC_HANDLEVALUE, FALSE, L"Handle value", 80, PH_ALIGN_LEFT, ULONG_MAX, 0);
 
     TreeNew_SetRedraw(hwnd, TRUE);
 
@@ -293,6 +294,7 @@ VOID PhpDestroyHandleNode(
     PhEmCallObjectOperation(EmHandleNodeType, HandleNode, EmObjectDelete);
 
     if (HandleNode->GrantedAccessSymbolicText) PhDereferenceObject(HandleNode->GrantedAccessSymbolicText);
+    if (HandleNode->HandleValue) PhDereferenceObject(HandleNode->HandleValue);
 
     PhDereferenceObject(HandleNode->HandleItem);
 
@@ -358,18 +360,17 @@ VOID PhTickHandleNodes(
 }
 
 #define SORT_FUNCTION(Column) PhpHandleTreeNewCompare##Column
-
 #define BEGIN_SORT_FUNCTION(Column) static int __cdecl PhpHandleTreeNewCompare##Column( \
     _In_ void *_context, \
     _In_ const void *_elem1, \
     _In_ const void *_elem2 \
     ) \
 { \
+    PPH_HANDLE_LIST_CONTEXT context = (PPH_HANDLE_LIST_CONTEXT)_context; \
     PPH_HANDLE_NODE node1 = *(PPH_HANDLE_NODE *)_elem1; \
     PPH_HANDLE_NODE node2 = *(PPH_HANDLE_NODE *)_elem2; \
     PPH_HANDLE_ITEM handleItem1 = node1->HandleItem; \
     PPH_HANDLE_ITEM handleItem2 = node2->HandleItem; \
-    PPH_HANDLE_LIST_CONTEXT context = (PPH_HANDLE_LIST_CONTEXT)_context; \
     int sortResult = 0;
 
 #define END_SORT_FUNCTION \
@@ -430,7 +431,7 @@ END_SORT_FUNCTION
 
 BEGIN_SORT_FUNCTION(OriginalName)
 {
-    sortResult = PhCompareStringWithNull(handleItem1->ObjectName, handleItem2->ObjectName, TRUE);
+    sortResult = PhCompareStringWithNullSortOrder(handleItem1->ObjectName, handleItem2->ObjectName, context->TreeNewSortOrder, TRUE);
 }
 END_SORT_FUNCTION
 
@@ -476,7 +477,8 @@ BOOLEAN NTAPI PhpHandleTreeNewCallback(
                     SORT_FUNCTION(GrantedAccess),
                     SORT_FUNCTION(GrantedAccess), // Granted Access (Symbolic)
                     SORT_FUNCTION(OriginalName),
-                    SORT_FUNCTION(FileShareAccess)
+                    SORT_FUNCTION(FileShareAccess),
+                    SORT_FUNCTION(Handle),
                 };
                 int (__cdecl *sortFunction)(void *, const void *, const void *);
 
@@ -534,66 +536,86 @@ BOOLEAN NTAPI PhpHandleTreeNewCallback(
                 getCellText->Text = PhGetStringRef(handleItem->BestObjectName);
                 break;
             case PHHNTLC_HANDLE:
-                PhInitializeStringRefLongHint(&getCellText->Text, handleItem->HandleString);
+                {
+                    PhInitializeStringRefLongHint(&getCellText->Text, handleItem->HandleString);
+                }
                 break;
             case PHHNTLC_OBJECTADDRESS:
-                if (handleItem->Object)
-                    PhInitializeStringRefLongHint(&getCellText->Text, handleItem->ObjectString);
+                {
+                    if (handleItem->Object)
+                        PhInitializeStringRefLongHint(&getCellText->Text, handleItem->ObjectString);
+                }
                 break;
             case PHHNTLC_ATTRIBUTES:
-                switch (handleItem->Attributes & (OBJ_PROTECT_CLOSE | OBJ_INHERIT))
                 {
-                case OBJ_PROTECT_CLOSE:
-                    PhInitializeStringRef(&getCellText->Text, L"Protected");
-                    break;
-                case OBJ_INHERIT:
-                    PhInitializeStringRef(&getCellText->Text, L"Inherit");
-                    break;
-                case OBJ_PROTECT_CLOSE | OBJ_INHERIT:
-                    PhInitializeStringRef(&getCellText->Text, L"Protected, Inherit");
-                    break;
+                    switch (handleItem->Attributes & (OBJ_PROTECT_CLOSE | OBJ_INHERIT))
+                    {
+                    case OBJ_PROTECT_CLOSE:
+                        PhInitializeStringRef(&getCellText->Text, L"Protected");
+                        break;
+                    case OBJ_INHERIT:
+                        PhInitializeStringRef(&getCellText->Text, L"Inherit");
+                        break;
+                    case OBJ_PROTECT_CLOSE | OBJ_INHERIT:
+                        PhInitializeStringRef(&getCellText->Text, L"Protected, Inherit");
+                        break;
+                    }
                 }
                 break;
             case PHHNTLC_GRANTEDACCESS:
-                PhInitializeStringRefLongHint(&getCellText->Text, handleItem->GrantedAccessString);
+                {
+                    PhInitializeStringRefLongHint(&getCellText->Text, handleItem->GrantedAccessString);
+                }
                 break;
             case PHHNTLC_GRANTEDACCESSSYMBOLIC:
-                if (handleItem->GrantedAccess != 0)
                 {
-                    if (!node->GrantedAccessSymbolicText)
+                    if (handleItem->GrantedAccess != 0)
                     {
-                        PPH_ACCESS_ENTRY accessEntries;
-                        ULONG numberOfAccessEntries;
-
-                        if (PhGetAccessEntries(PhGetStringOrEmpty(handleItem->TypeName), &accessEntries, &numberOfAccessEntries))
+                        if (!node->GrantedAccessSymbolicText)
                         {
-                            node->GrantedAccessSymbolicText = PhGetAccessString(handleItem->GrantedAccess, accessEntries, numberOfAccessEntries);
-                            PhFree(accessEntries);
-                        }
-                    }
+                            PPH_ACCESS_ENTRY accessEntries;
+                            ULONG numberOfAccessEntries;
 
-                    getCellText->Text = PhGetStringRef(node->GrantedAccessSymbolicText);
+                            if (PhGetAccessEntries(PhGetStringOrEmpty(handleItem->TypeName), &accessEntries, &numberOfAccessEntries))
+                            {
+                                node->GrantedAccessSymbolicText = PhGetAccessString(handleItem->GrantedAccess, accessEntries, numberOfAccessEntries);
+                                PhFree(accessEntries);
+                            }
+                        }
+
+                        getCellText->Text = PhGetStringRef(node->GrantedAccessSymbolicText);
+                    }
                 }
                 break;
             case PHHNTLC_ORIGINALNAME:
-                getCellText->Text = PhGetStringRef(handleItem->ObjectName);
+                {
+                    getCellText->Text = PhGetStringRef(handleItem->ObjectName);
+                }
                 break;
             case PHHNTLC_FILESHAREACCESS:
-                if (handleItem->FileFlags & PH_HANDLE_FILE_SHARED_MASK)
                 {
-                    node->FileShareAccessText[0] = L'-';
-                    node->FileShareAccessText[1] = L'-';
-                    node->FileShareAccessText[2] = L'-';
-                    node->FileShareAccessText[3] = UNICODE_NULL;
+                    if (handleItem->FileFlags & PH_HANDLE_FILE_SHARED_MASK)
+                    {
+                        node->FileShareAccessText[0] = L'-';
+                        node->FileShareAccessText[1] = L'-';
+                        node->FileShareAccessText[2] = L'-';
+                        node->FileShareAccessText[3] = UNICODE_NULL;
 
-                    if (handleItem->FileFlags & PH_HANDLE_FILE_SHARED_READ)
-                        node->FileShareAccessText[0] = L'R';
-                    if (handleItem->FileFlags & PH_HANDLE_FILE_SHARED_WRITE)
-                        node->FileShareAccessText[1] = L'W';
-                    if (handleItem->FileFlags & PH_HANDLE_FILE_SHARED_DELETE)
-                        node->FileShareAccessText[2] = L'D';
+                        if (handleItem->FileFlags & PH_HANDLE_FILE_SHARED_READ)
+                            node->FileShareAccessText[0] = L'R';
+                        if (handleItem->FileFlags & PH_HANDLE_FILE_SHARED_WRITE)
+                            node->FileShareAccessText[1] = L'W';
+                        if (handleItem->FileFlags & PH_HANDLE_FILE_SHARED_DELETE)
+                            node->FileShareAccessText[2] = L'D';
 
-                    PhInitializeStringRefLongHint(&getCellText->Text, node->FileShareAccessText);
+                        PhInitializeStringRefLongHint(&getCellText->Text, node->FileShareAccessText);
+                    }
+                }
+                break;
+            case PHHNTLC_HANDLEVALUE:
+                {
+                    PhMoveReference(&node->HandleValue, PhFormatUInt64((HANDLE_PTR)handleItem->Handle, FALSE));
+                    getCellText->Text = PhGetStringRef(node->HandleValue);
                 }
                 break;
             default:
@@ -613,9 +635,11 @@ BOOLEAN NTAPI PhpHandleTreeNewCallback(
 
             if (!handleItem)
                 ; // Dummy
-            else if (PhCsUseColorProtectedHandles && (handleItem->Attributes & OBJ_PROTECT_CLOSE))
+            else if (PhCsUseColorProtectedInheritHandles && FlagOn(handleItem->Attributes, OBJ_PROTECT_CLOSE) && FlagOn(handleItem->Attributes, OBJ_INHERIT))
+                getNodeColor->BackColor = PhCsColorProtectedInheritHandles;
+            else if (PhCsUseColorProtectedHandles && FlagOn(handleItem->Attributes, OBJ_PROTECT_CLOSE))
                 getNodeColor->BackColor = PhCsColorProtectedHandles;
-            else if (PhCsUseColorInheritHandles && (handleItem->Attributes & OBJ_INHERIT))
+            else if (PhCsUseColorInheritHandles && FlagOn(handleItem->Attributes, OBJ_INHERIT))
                 getNodeColor->BackColor = PhCsColorInheritHandles;
 
             getNodeColor->Flags = TN_AUTO_FORECOLOR;
@@ -623,7 +647,11 @@ BOOLEAN NTAPI PhpHandleTreeNewCallback(
         return TRUE;
     case TreeNewSortChanged:
         {
-            TreeNew_GetSort(hwnd, &context->TreeNewSortColumn, &context->TreeNewSortOrder);
+            PPH_TREENEW_SORT_CHANGED_EVENT sorting = Parameter1;
+
+            context->TreeNewSortColumn = sorting->SortColumn;
+            context->TreeNewSortOrder = sorting->SortOrder;
+
             // Force a rebuild to sort the items.
             TreeNew_NodesStructured(hwnd);
         }
@@ -637,10 +665,6 @@ BOOLEAN NTAPI PhpHandleTreeNewCallback(
             case 'C':
                 if (GetKeyState(VK_CONTROL) < 0)
                     SendMessage(context->ParentWindowHandle, WM_COMMAND, ID_HANDLE_COPY, 0);
-                break;
-            case 'A':
-                if (GetKeyState(VK_CONTROL) < 0)
-                    TreeNew_SelectRange(context->TreeNewHandle, 0, -1);
                 break;
             case VK_DELETE:
                 // Pass a 1 in lParam to indicate that warnings should be enabled.
@@ -740,7 +764,7 @@ VOID PhGetSelectedHandleItems(
             PhAddItemArray(&array, &node->HandleItem);
     }
 
-    *NumberOfHandles = (ULONG)array.Count;
+    *NumberOfHandles = (ULONG)PhFinalArrayCount(&array);
     *Handles = PhFinalArrayItems(&array);
 }
 

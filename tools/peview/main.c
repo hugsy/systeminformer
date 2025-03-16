@@ -37,9 +37,7 @@ NTSTATUS PvpConnectKph(
     NTSTATUS status;
     PPH_STRING portName = NULL;
 
-    status = KphInitialize();
-    if (!NT_SUCCESS(status))
-        return status;
+    KphInitialize();
 
     // TODO: get the current configured port name from the main binary, settings aren't shared.
     //if (PhIsNullOrEmptyString(portName = PhGetStringSetting(L"KsiPortName")))
@@ -119,8 +117,13 @@ INT WINAPI wWinMain(
 #ifndef DEBUG
     if (PhIsExecutingInWow64())
     {
-        PhShowWarning(
+        PhGuiSupportInitialization();
+        PhSettingsInitialization();
+        PvInitializeSettings();
+        PvInitializeSuperclassControls();
+        PhShowWarning2(
             NULL,
+            L"Warning.",
             L"%s",
             L"You are attempting to run the 32-bit version of PE Viewer on 64-bit Windows. "
             L"Most features will not work correctly.\n\n"
@@ -367,7 +370,7 @@ BOOLEAN PvInitializeExceptionPolicy(
         PhSetProcessErrorMode(NtCurrentProcess(), errorMode);
     }
 
-    RtlSetUnhandledExceptionFilter(PvUnhandledExceptionCallback);
+    SetUnhandledExceptionFilter(PvUnhandledExceptionCallback);
 #endif
     return TRUE;
 }

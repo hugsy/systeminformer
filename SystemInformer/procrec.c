@@ -84,11 +84,6 @@ INT_PTR CALLBACK PhpProcessRecordDlgProc(
     else
     {
         context = PhGetWindowContext(hwndDlg, PH_WINDOW_CONTEXT_DEFAULT);
-
-        if (uMsg == WM_DESTROY)
-        {
-            PhRemoveWindowContext(hwndDlg, PH_WINDOW_CONTEXT_DEFAULT);
-        }
     }
 
     if (!context)
@@ -214,6 +209,8 @@ INT_PTR CALLBACK PhpProcessRecordDlgProc(
         break;
     case WM_DESTROY:
         {
+            PhRemoveWindowContext(hwndDlg, PH_WINDOW_CONTEXT_DEFAULT);
+
             if (context->FileIcon)
                 DestroyIcon(context->FileIcon);
         }
@@ -248,12 +245,17 @@ INT_PTR CALLBACK PhpProcessRecordDlgProc(
 
                     if (processItem = PhReferenceProcessItemForRecord(context->Record))
                     {
-                        ProcessHacker_ShowProcessProperties(processItem);
+                        SystemInformer_ShowProcessProperties(processItem);
                         PhDereferenceObject(processItem);
                     }
                     else
                     {
-                        PhShowError(hwndDlg, L"%s", L"The process has already terminated; only the process record is available.");
+                        PhShowError2(
+                            hwndDlg,
+                            L"Unable to show the process properties.",
+                            L"%s",
+                            L"The process has already terminated; only the process record is available."
+                            );
                     }
                 }
                 break;

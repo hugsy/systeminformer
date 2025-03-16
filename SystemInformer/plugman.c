@@ -341,7 +341,11 @@ BOOLEAN NTAPI PluginsTreeNewCallback(
         return TRUE;
     case TreeNewSortChanged:
         {
-            TreeNew_GetSort(hwnd, &context->TreeNewSortColumn, &context->TreeNewSortOrder);
+            PPH_TREENEW_SORT_CHANGED_EVENT sorting = Parameter1;
+
+            context->TreeNewSortColumn = sorting->SortColumn;
+            context->TreeNewSortOrder = sorting->SortOrder;
+
             // Force a rebuild to sort the items.
             TreeNew_NodesStructured(hwnd);
         }
@@ -355,10 +359,6 @@ BOOLEAN NTAPI PluginsTreeNewCallback(
             case 'C':
                 if (GetKeyState(VK_CONTROL) < 0)
                     SendMessage(context->WindowHandle, WM_COMMAND, ID_OBJECT_COPY, 0);
-                break;
-            case 'A':
-                if (GetKeyState(VK_CONTROL) < 0)
-                    TreeNew_SelectRange(context->TreeNewHandle, 0, -1);
                 break;
             case VK_DELETE:
                 SendMessage(context->WindowHandle, WM_COMMAND, ID_OBJECT_CLOSE, 0);
@@ -608,7 +608,7 @@ PPH_STRING PhpGetPluginBaseName(
 
 NTSTATUS NTAPI PhpEnumeratePluginCallback(
     _In_ PPH_PLUGIN Information,
-    _In_opt_ PVOID Context
+    _In_ PVOID Context
     )
 {
     PPH_STRING pluginBaseName;

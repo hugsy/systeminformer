@@ -5,7 +5,7 @@
  *
  * Authors:
  *
- *     jxy-s   2022
+ *     jxy-s   2022-2024
  *     dmex    2022-2023
  *
  */
@@ -15,21 +15,34 @@
 #include <kphcomms.h>
 #include <kphdyndata.h>
 #include <settings.h>
+#include <phsettings.h>
 #include <json.h>
+#include <mapimg.h>
 #include <phappres.h>
 #include <sistatus.h>
+#include <informer.h>
 
 #include <ksisup.h>
 
-static PH_STRINGREF DriverExtension = PH_STRINGREF_INIT(L".sys");
+typedef struct _KSI_SUPPORT_DATA
+{
+    USHORT Class;
+    USHORT Machine;
+    ULONG TimeDateStamp;
+    ULONG SizeOfImage;
+} KSI_SUPPORT_DATA, *PKSI_SUPPORT_DATA;
+
+static CONST PH_STRINGREF DriverExtension = PH_STRINGREF_INIT(L".sys");
+static PPH_STRING KsiKernelVersion = NULL;
+static KSI_SUPPORT_DATA KsiSupportData = { MAXWORD, 0, 0, 0 };
+static PPH_STRING KsiSupportString = NULL;
+// N.B. These are necessary for consistency between load and unload.
+static BOOLEAN KsiEnableLoadNative = FALSE;
+static BOOLEAN KsiEnableLoadFilter = FALSE;
+static PPH_STRING KsiServiceName = NULL;
 
 #ifdef DEBUG
 //#define KSI_DEBUG_DELAY_SPLASHSCREEN 1
-
-extern // ksidbg.c
-VOID KsiDebugLogMessage(
-    _In_ PCKPH_MESSAGE Message
-    );
 
 extern // ksidbg.c
 VOID KsiDebugLogInitialize(
@@ -37,16 +50,31 @@ VOID KsiDebugLogInitialize(
     );
 
 extern // ksidbg.c
-VOID KsiDebugLogDestroy(
+VOID KsiDebugLogFinalize(
     VOID
     );
 #endif
 
-BOOLEAN KsiEnableLoadNative = FALSE;
-BOOLEAN KsiEnableLoadFilter = FALSE;
-PPH_STRING KsiKernelVersion = NULL;
+PPH_STRING KsiGetKernelFileName(
+    VOID
+    )
+{
+    static PH_INITONCE initOnce = PH_INITONCE_INIT;
+    static PPH_STRING KsiKernelFileName = NULL;
 
-PPH_STRING PhpGetKernelVersionString(
+    if (PhBeginInitOnce(&initOnce))
+    {
+        KsiKernelFileName = PhGetKernelFileName();
+        PhEndInitOnce(&initOnce);
+    }
+
+    if (KsiKernelFileName)
+        return PhReferenceObject(KsiKernelFileName);
+
+    return NULL;
+}
+
+PPH_STRING KsiGetKernelVersionString(
     VOID
     )
 {
@@ -57,7 +85,7 @@ PPH_STRING PhpGetKernelVersionString(
         PPH_STRING fileName;
         PH_IMAGE_VERSION_INFO versionInfo;
 
-        if (fileName = PhGetKernelFileName2())
+        if (fileName = KsiGetKernelFileName())
         {
             if (PhInitializeImageVersionInfoEx(&versionInfo, &fileName->sr, FALSE))
             {
@@ -79,13 +107,75 @@ PPH_STRING PhpGetKernelVersionString(
     return NULL;
 }
 
+VOID KsiGetKernelSupportData(
+    _Out_ PKSI_SUPPORT_DATA SupportData
+    )
+{
+    static PH_INITONCE initOnce = PH_INITONCE_INIT;
+
+    if (PhBeginInitOnce(&initOnce))
+    {
+        PPH_STRING fileName;
+        PH_MAPPED_IMAGE mappedImage;
+
+        if (fileName = KsiGetKernelFileName())
+        {
+            if (PhEndsWithString2(fileName, L"ntoskrnl.exe", TRUE))
+                KsiSupportData.Class = KPH_DYN_CLASS_NTOSKRNL;
+            else if (PhEndsWithString2(fileName, L"ntkrla57.exe", TRUE))
+                KsiSupportData.Class = KPH_DYN_CLASS_NTKRLA57;
+
+            if (NT_SUCCESS(PhLoadMappedImageHeaderPageSize(&fileName->sr, NULL, &mappedImage)))
+            {
+                KsiSupportData.Machine = mappedImage.NtHeaders->FileHeader.Machine;
+                KsiSupportData.TimeDateStamp = mappedImage.NtHeaders->FileHeader.TimeDateStamp;
+                KsiSupportData.SizeOfImage = mappedImage.NtHeaders->OptionalHeader.SizeOfImage;
+
+                PhUnloadMappedImage(&mappedImage);
+            }
+
+            PhDereferenceObject(fileName);
+        }
+
+        PhEndInitOnce(&initOnce);
+    }
+
+    *SupportData = KsiSupportData;
+}
+
+PPH_STRING KsiGetKernelSupportString(
+    VOID
+    )
+{
+    static PH_INITONCE initOnce = PH_INITONCE_INIT;
+
+    if (PhBeginInitOnce(&initOnce))
+    {
+        KSI_SUPPORT_DATA supportData;
+
+        KsiGetKernelSupportData(&supportData);
+
+        KsiSupportString = PhFormatString(
+            L"%02x-%04x-%08x-%08x",
+            (BYTE)supportData.Class,
+            supportData.Machine,
+            supportData.TimeDateStamp,
+            supportData.SizeOfImage
+            );
+
+        PhEndInitOnce(&initOnce);
+    }
+
+    return PhReferenceObject(KsiSupportString);
+}
+
 VOID PhShowKsiStatus(
     VOID
     )
 {
     KPH_PROCESS_STATE processState;
 
-    if (!PhGetIntegerSetting(L"KsiEnableWarnings") || PhStartupParameters.PhSvc)
+    if (!PhEnableKsiWarnings || PhStartupParameters.PhSvc)
         return;
 
     processState = KphGetCurrentProcessState();
@@ -138,6 +228,7 @@ VOID PhShowKsiStatus(
             PhGetString(infoString)
             ))
         {
+            PhEnableKsiWarnings = FALSE;
             PhSetIntegerSetting(L"KsiEnableWarnings", FALSE);
         }
 
@@ -145,13 +236,10 @@ VOID PhShowKsiStatus(
     }
 }
 
-VOID PhpShowKsiMessage(
-    _In_opt_ HWND WindowHandle,
-    _In_opt_ PWSTR Icon,
+PPH_STRING PhpGetKsiMessage(
     _In_opt_ NTSTATUS Status,
     _In_ BOOLEAN Force,
-    _In_ PWSTR Title,
-    _In_ PWSTR Format,
+    _In_ PCWSTR Format,
     _In_ va_list ArgPtr
     )
 {
@@ -159,14 +247,12 @@ VOID PhpShowKsiMessage(
     PPH_STRING kernelVersion;
     PPH_STRING errorMessage;
     PH_STRING_BUILDER stringBuilder;
+    PPH_STRING supportString;
     PPH_STRING messageString;
     ULONG processState;
 
-    if (!Force && !PhGetIntegerSetting(L"KsiEnableWarnings") || PhStartupParameters.PhSvc)
-        return;
-
     versionString = PhGetApplicationVersionString(FALSE);
-    kernelVersion = PhpGetKernelVersionString();
+    kernelVersion = KsiGetKernelVersionString();
     errorMessage = NULL;
 
     PhInitializeStringBuilder(&stringBuilder, 100);
@@ -176,16 +262,8 @@ VOID PhpShowKsiMessage(
 
     if (Status != 0)
     {
-        switch (Status)
-        {
-        case STATUS_NO_SUCH_FILE:
-            errorMessage = PhCreateString(L"The file does not exist.");
-            break;
-        default:
-            if (!(errorMessage = PhGetStatusMessage(Status, 0)))
-                errorMessage = PhGetStatusMessage(0, Status);
-            break;
-        }
+        if (!(errorMessage = PhGetStatusMessage(Status, 0)))
+            errorMessage = PhGetStatusMessage(0, Status);
 
         if (errorMessage)
         {
@@ -222,7 +300,6 @@ VOID PhpShowKsiMessage(
     PhAppendStringBuilder2(&stringBuilder, L"Windows Kernel ");
     PhAppendStringBuilder2(&stringBuilder, PhGetStringOrDefault(kernelVersion, L"Unknown"));
     PhAppendStringBuilder2(&stringBuilder, L"\r\n");
-
     PhAppendStringBuilder(&stringBuilder, &versionString->sr);
     PhAppendStringBuilder2(&stringBuilder, L"\r\n");
 
@@ -234,98 +311,173 @@ VOID PhpShowKsiMessage(
         PhAppendStringBuilder2(&stringBuilder, L"\r\n");
     }
 
-    if (Force && !PhGetIntegerSetting(L"KsiEnableWarnings"))
+    if (!PhEnableKsiWarnings)
     {
         PhAppendStringBuilder2(&stringBuilder, L"Driver warnings are disabled.");
         PhAppendStringBuilder2(&stringBuilder, L"\r\n");
     }
 
-    if (PhEndsWithString2(stringBuilder.String, L"\r\n", FALSE))
-        PhRemoveEndStringBuilder(&stringBuilder, 2);
+    supportString = KsiGetKernelSupportString();
+    PhAppendStringBuilder2(&stringBuilder, L"\r\n");
+    PhAppendStringBuilder(&stringBuilder, &supportString->sr);
+    PhDereferenceObject(supportString);
 
     messageString = PhFinalStringBuilderString(&stringBuilder);
 
+    PhClearReference(&errorMessage);
+    PhClearReference(&kernelVersion);
+    PhDereferenceObject(versionString);
+
+    return messageString;
+}
+
+LONG PhpShowKsiMessage(
+    _In_opt_ HWND WindowHandle,
+    _In_ ULONG Buttons,
+    _In_opt_ PCWSTR Icon,
+    _In_opt_ NTSTATUS Status,
+    _In_ BOOLEAN Force,
+    _In_ PCWSTR Title,
+    _In_ PCWSTR Format,
+    _In_ va_list ArgPtr
+    )
+{
+    LONG result;
+    PPH_STRING errorMessage;
+
+    if (!Force && !PhEnableKsiWarnings || PhStartupParameters.PhSvc)
+        return INT_ERROR;
+
+    errorMessage = PhpGetKsiMessage(Status, Force, Format, ArgPtr);
+
     if (Force)
     {
-        PhShowMessage2(
+        result = PhShowMessage2(
             WindowHandle,
-            TD_OK_BUTTON,
+            Buttons,
             Icon,
             Title,
-            PhGetString(messageString)
+            PhGetString(errorMessage)
             );
     }
     else
     {
-        if (PhShowMessageOneTime(
+        BOOLEAN checked;
+
+        result = PhShowMessageOneTime2(
             WindowHandle,
-            TD_OK_BUTTON,
+            Buttons,
             Icon,
             Title,
-            PhGetString(messageString)
-            ))
+            &checked,
+            PhGetString(errorMessage)
+            );
+
+        if (checked)
         {
+            PhEnableKsiWarnings = FALSE;
             PhSetIntegerSetting(L"KsiEnableWarnings", FALSE);
         }
     }
 
     PhClearReference(&errorMessage);
-    PhClearReference(&kernelVersion);
-    PhDereferenceObject(versionString);
+
+    return result;
 }
+
+PPH_STRING PhGetKsiMessage(
+    _In_opt_ NTSTATUS Status,
+    _In_ BOOLEAN Force,
+    _In_ PCWSTR Format,
+    ...
+    )
+{
+    PPH_STRING message;
+    va_list argptr;
+
+    va_start(argptr, Format);
+    message = PhpGetKsiMessage(Status, Force, Format, argptr);
+    va_end(argptr);
+
+    return message;
+}
+
+LONG PhShowKsiMessage2(
+    _In_opt_ HWND WindowHandle,
+    _In_ ULONG Buttons,
+    _In_opt_ PCWSTR Icon,
+    _In_opt_ NTSTATUS Status,
+    _In_ BOOLEAN Force,
+    _In_ PCWSTR Title,
+    _In_ PCWSTR Format,
+    ...
+    )
+{
+    LONG result;
+    va_list argptr;
+
+    va_start(argptr, Format);
+    result = PhpShowKsiMessage(WindowHandle, Buttons, Icon, Status, Force, Title, Format, argptr);
+    va_end(argptr);
+
+    return result;
+ }
+
 
 VOID PhShowKsiMessageEx(
     _In_opt_ HWND WindowHandle,
-    _In_opt_ PWSTR Icon,
+    _In_opt_ PCWSTR Icon,
     _In_opt_ NTSTATUS Status,
     _In_ BOOLEAN Force,
-    _In_ PWSTR Title,
-    _In_ PWSTR Format,
+    _In_ PCWSTR Title,
+    _In_ PCWSTR Format,
     ...
     )
 {
     va_list argptr;
 
     va_start(argptr, Format);
-    PhpShowKsiMessage(WindowHandle, Icon, Status, Force, Title, Format, argptr);
+    PhpShowKsiMessage(WindowHandle, TD_OK_BUTTON, Icon, Status, Force, Title, Format, argptr);
     va_end(argptr);
 }
 
 VOID PhShowKsiMessage(
     _In_opt_ HWND WindowHandle,
-    _In_opt_ PWSTR Icon,
-    _In_ PWSTR Title,
-    _In_ PWSTR Format,
+    _In_opt_ PCWSTR Icon,
+    _In_ PCWSTR Title,
+    _In_ PCWSTR Format,
     ...
     )
 {
     va_list argptr;
 
     va_start(argptr, Format);
-    PhpShowKsiMessage(WindowHandle, Icon, 0, TRUE, Title, Format, argptr);
+    PhpShowKsiMessage(WindowHandle, TD_OK_BUTTON, Icon, 0, TRUE, Title, Format, argptr);
     va_end(argptr);
 }
 
 NTSTATUS PhRestartSelf(
-    _In_ PPH_STRINGREF AdditionalCommandLine
+    _In_ PCPH_STRINGREF AdditionalCommandLine
     )
 {
 #ifndef DEBUG
-#define DEFAULT_MITIGATION_POLICY_FLAGS \
-    (PROCESS_CREATION_MITIGATION_POLICY_HEAP_TERMINATE_ALWAYS_ON | \
-     PROCESS_CREATION_MITIGATION_POLICY_BOTTOM_UP_ASLR_ALWAYS_ON | \
-     PROCESS_CREATION_MITIGATION_POLICY_HIGH_ENTROPY_ASLR_ALWAYS_ON | \
-     PROCESS_CREATION_MITIGATION_POLICY_EXTENSION_POINT_DISABLE_ALWAYS_ON | \
-     PROCESS_CREATION_MITIGATION_POLICY_CONTROL_FLOW_GUARD_ALWAYS_ON | \
-     PROCESS_CREATION_MITIGATION_POLICY_IMAGE_LOAD_PREFER_SYSTEM32_ALWAYS_ON)
-#define DEFAULT_MITIGATION_POLICY_FLAGS2 \
-    (PROCESS_CREATION_MITIGATION_POLICY2_LOADER_INTEGRITY_CONTINUITY_ALWAYS_ON | \
-     PROCESS_CREATION_MITIGATION_POLICY2_STRICT_CONTROL_FLOW_GUARD_ALWAYS_ON | \
-     PROCESS_CREATION_MITIGATION_POLICY2_MODULE_TAMPERING_PROTECTION_ALWAYS_ON)
-     // PROCESS_CREATION_MITIGATION_POLICY2_BLOCK_NON_CET_BINARIES_ALWAYS_ON
-     // PROCESS_CREATION_MITIGATION_POLICY2_XTENDED_CONTROL_FLOW_GUARD_ALWAYS_ON
+    static ULONG64 mitigationFlags[] =
+    {
+        (PROCESS_CREATION_MITIGATION_POLICY_HEAP_TERMINATE_ALWAYS_ON |
+         PROCESS_CREATION_MITIGATION_POLICY_BOTTOM_UP_ASLR_ALWAYS_ON |
+         PROCESS_CREATION_MITIGATION_POLICY_HIGH_ENTROPY_ASLR_ALWAYS_ON |
+         PROCESS_CREATION_MITIGATION_POLICY_EXTENSION_POINT_DISABLE_ALWAYS_ON |
+         PROCESS_CREATION_MITIGATION_POLICY_CONTROL_FLOW_GUARD_ALWAYS_ON |
+         PROCESS_CREATION_MITIGATION_POLICY_IMAGE_LOAD_PREFER_SYSTEM32_ALWAYS_ON),
+        (PROCESS_CREATION_MITIGATION_POLICY2_LOADER_INTEGRITY_CONTINUITY_ALWAYS_ON |
+         PROCESS_CREATION_MITIGATION_POLICY2_STRICT_CONTROL_FLOW_GUARD_ALWAYS_ON |
+         // PROCESS_CREATION_MITIGATION_POLICY2_BLOCK_NON_CET_BINARIES_ALWAYS_ON |
+         // PROCESS_CREATION_MITIGATION_POLICY2_XTENDED_CONTROL_FLOW_GUARD_ALWAYS_ON |
+         PROCESS_CREATION_MITIGATION_POLICY2_MODULE_TAMPERING_PROTECTION_ALWAYS_ON)
+    };
 #endif
     NTSTATUS status;
+    PPROC_THREAD_ATTRIBUTE_LIST attributeList = NULL;
     PH_STRINGREF commandlineSr;
     PPH_STRING commandline;
     STARTUPINFOEX startupInfo;
@@ -340,11 +492,8 @@ NTSTATUS PhRestartSelf(
         AdditionalCommandLine
         );
 
-    memset(&startupInfo, 0, sizeof(STARTUPINFOEX));
-    startupInfo.StartupInfo.cb = sizeof(STARTUPINFOEX);
-
 #ifndef DEBUG
-    status = PhInitializeProcThreadAttributeList(&startupInfo.lpAttributeList, 1);
+    status = PhInitializeProcThreadAttributeList(&attributeList, 1);
 
     if (!NT_SUCCESS(status))
         return status;
@@ -352,19 +501,19 @@ NTSTATUS PhRestartSelf(
     if (WindowsVersion >= WINDOWS_10_22H2)
     {
         status = PhUpdateProcThreadAttribute(
-            startupInfo.lpAttributeList,
+            attributeList,
             PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY,
-            &(ULONG64[2]){ DEFAULT_MITIGATION_POLICY_FLAGS, DEFAULT_MITIGATION_POLICY_FLAGS2 },
-            sizeof(ULONG64[2])
+            mitigationFlags,
+            sizeof(ULONG64) * 2
             );
     }
     else
     {
         status = PhUpdateProcThreadAttribute(
-            startupInfo.lpAttributeList,
+            attributeList,
             PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY,
-            &(ULONG64[1]) { DEFAULT_MITIGATION_POLICY_FLAGS },
-            sizeof(ULONG64[1])
+            mitigationFlags,
+            sizeof(ULONG64) * 1
             );
     }
 #endif
@@ -372,12 +521,16 @@ NTSTATUS PhRestartSelf(
     if (!NT_SUCCESS(status))
         return status;
 
+    memset(&startupInfo, 0, sizeof(STARTUPINFOEX));
+    startupInfo.StartupInfo.cb = sizeof(STARTUPINFOEX);
+    startupInfo.lpAttributeList = attributeList;
+
     status = PhCreateProcessWin32Ex(
         NULL,
         PhGetString(commandline),
         NULL,
         NULL,
-        &startupInfo.StartupInfo,
+        &startupInfo,
         PH_CREATE_PROCESS_DEFAULT_ERROR_MODE | PH_CREATE_PROCESS_EXTENDED_STARTUPINFO,
         NULL,
         NULL,
@@ -390,8 +543,8 @@ NTSTATUS PhRestartSelf(
         PhExitApplication(STATUS_SUCCESS);
     }
 
-    if (startupInfo.lpAttributeList)
-        PhDeleteProcThreadAttributeList(startupInfo.lpAttributeList);
+    if (attributeList)
+        PhDeleteProcThreadAttributeList(attributeList);
 
     PhDereferenceObject(commandline);
 
@@ -449,22 +602,14 @@ BOOLEAN KsiCommsCallback(
     _In_ PCKPH_MESSAGE Message
     )
 {
-#ifdef DEBUG
-    KsiDebugLogMessage(Message);
-#endif
-
-    if (Message->Header.MessageId != KphMsgRequiredStateFailure)
-    {
-        return FALSE;
-    }
-
-    if (Message->Kernel.RequiredStateFailure.ClientId.UniqueProcess == NtCurrentProcessId())
+    if (Message->Header.MessageId == KphMsgRequiredStateFailure &&
+        Message->Kernel.RequiredStateFailure.ClientId.UniqueProcess == NtCurrentProcessId())
     {
         // force the cached value to be updated
         KphLevelEx(FALSE);
     }
 
-    return TRUE;
+    return PhInformerDispatch(ReplyToken, Message);
 }
 
 NTSTATUS KsiReadConfiguration(
@@ -513,30 +658,24 @@ NTSTATUS KsiValidateDynamicConfiguration(
 {
     NTSTATUS status;
     PPH_STRING fileName;
-    PVOID versionInfo;
-    VS_FIXEDFILEINFO* fileInfo;
+    KSI_SUPPORT_DATA supportData;
 
     status = STATUS_NO_SUCH_FILE;
 
-    if (fileName = PhGetKernelFileName2())
+    if (fileName = KsiGetKernelFileName())
     {
-        if (versionInfo = PhGetFileVersionInfoEx(&fileName->sr))
-        {
-            if (fileInfo = PhGetFileVersionFixedInfo(versionInfo))
-            {
-                status = KphDynDataGetConfiguration(
-                    (PKPH_DYNDATA)DynData,
-                    DynDataLength,
-                    HIWORD(fileInfo->dwFileVersionMS),
-                    LOWORD(fileInfo->dwFileVersionMS),
-                    HIWORD(fileInfo->dwFileVersionLS),
-                    LOWORD(fileInfo->dwFileVersionLS),
-                    NULL
-                    );
-            }
+        KsiGetKernelSupportData(&supportData);
 
-            PhFree(versionInfo);
-        }
+        status = KphDynDataLookup(
+            (PKPH_DYN_CONFIG)DynData,
+            DynDataLength,
+            supportData.Class,
+            supportData.Machine,
+            supportData.TimeDateStamp,
+            supportData.SizeOfImage,
+            NULL,
+            NULL
+            );
 
         PhDereferenceObject(fileName);
     }
@@ -677,6 +816,21 @@ NTSTATUS KsiCreateTemporaryDriverFile(
     return status;
 }
 
+VOID KsiCreateRandomizedName(
+    _In_ PWSTR Prefix,
+    _Out_ PPH_STRING* Name
+    )
+{
+    ULONG length;
+    WCHAR buffer[13];
+
+    length = (PhGenerateRandomNumber64() % 6) + 8; // 8-12 characters
+
+    PhGenerateRandomAlphaString(buffer, length);
+
+    *Name = PhConcatStrings2(Prefix, buffer);
+}
+
 VOID KsiConnect(
     _In_opt_ HWND WindowHandle
     )
@@ -687,7 +841,6 @@ VOID KsiConnect(
     PBYTE signature = NULL;
     ULONG signatureLength;
     PPH_STRING ksiFileName = NULL;
-    PPH_STRING ksiServiceName = NULL;
     KPH_CONFIG_PARAMETERS config = { 0 };
     PPH_STRING objectName = NULL;
     PPH_STRING portName = NULL;
@@ -702,16 +855,32 @@ VOID KsiConnect(
 
     if (status == STATUS_SI_DYNDATA_UNSUPPORTED_KERNEL)
     {
-        PhShowKsiMessageEx(
-            WindowHandle,
-            TD_ERROR_ICON,
-            0,
-            FALSE,
-            L"Unable to load kernel driver",
-            L"The kernel driver is not yet supported on this kernel "
-            L"version. Request support by submitting a GitHub issue with "
-            L"the Windows Kernel version."
-            );
+        if (PhGetPhReleaseChannel() < PhCanaryChannel)
+        {
+            PhShowKsiMessageEx(
+                WindowHandle,
+                TD_ERROR_ICON,
+                0,
+                FALSE,
+                L"Unable to load kernel driver",
+                L"The kernel driver is not yet supported on this kernel "
+                L"version. For the latest kernel support switch to the Canary "
+                L"update channel (Help > Check for updates > Canary > Check)."
+                );
+        }
+        else
+        {
+            PhShowKsiMessageEx(
+                WindowHandle,
+                TD_ERROR_ICON,
+                0,
+                FALSE,
+                L"Unable to load kernel driver",
+                L"The kernel driver is not yet supported on this kernel "
+                L"version. Request support by submitting a GitHub issue with "
+                L"the Windows Kernel version."
+                );
+        }
         goto CleanupExit;
     }
 
@@ -741,8 +910,6 @@ VOID KsiConnect(
         goto CleanupExit;
     }
 
-    if (!(ksiServiceName = PhGetKsiServiceName()))
-        goto CleanupExit;
     if (!(ksiFileName = PhGetKsiDirectory()))
         goto CleanupExit;
 
@@ -767,7 +934,7 @@ VOID KsiConnect(
         PhClearReference(&altitude);
 
     config.FileName = &ksiFileName->sr;
-    config.ServiceName = &ksiServiceName->sr;
+    config.ServiceName = &KsiServiceName->sr;
     config.ObjectName = &objectName->sr;
     config.PortName = (portName ? &portName->sr : NULL);
     config.Altitude = (altitude ? &altitude->sr : NULL);
@@ -784,10 +951,9 @@ VOID KsiConnect(
     config.Flags.DisableImageLoadProtection = !!PhGetIntegerSetting(L"KsiDisableImageLoadProtection");
     config.Flags.RandomizedPoolTag = !!PhGetIntegerSetting(L"KsiRandomizedPoolTag");
     config.Flags.DynDataNoEmbedded = !!PhGetIntegerSetting(L"KsiDynDataNoEmbedded");
-    config.Callback = KsiCommsCallback;
-
     config.EnableNativeLoad = KsiEnableLoadNative;
     config.EnableFilterLoad = KsiEnableLoadFilter;
+    config.Callback = KsiCommsCallback;
 
     status = KphConnect(&config);
 
@@ -848,6 +1014,77 @@ VOID KsiConnect(
 
     if (!NT_SUCCESS(status))
     {
+        PPH_STRING randomServiceName;
+        PPH_STRING randomPortName;
+        PPH_STRING randomObjectName;
+
+        //
+        // Malware might be blocking the driver load. Offer the user a chance
+        // to try again with a different method.
+        //
+        if (PhShowKsiMessage2(
+            WindowHandle,
+            TD_YES_BUTTON | TD_NO_BUTTON,
+            TD_ERROR_ICON,
+            status,
+            FALSE,
+            L"Unable to load kernel driver",
+            L"Try again with alternate driver load method?"
+            ) != IDYES)
+        {
+            goto CleanupExit;
+        }
+
+        KsiCreateRandomizedName(L"", &randomServiceName);
+        KsiCreateRandomizedName(L"\\", &randomPortName);
+        KsiCreateRandomizedName(L"\\Driver\\", &randomObjectName);
+
+        config.EnableNativeLoad = TRUE;
+        config.EnableFilterLoad = FALSE;
+        config.ServiceName = &randomServiceName->sr;
+        config.PortName = &randomPortName->sr;
+        config.ObjectName = &randomObjectName->sr;
+
+        KsiEnableLoadNative = TRUE;
+        KsiEnableLoadFilter = FALSE;
+        PhDereferenceObject(KsiServiceName);
+        KsiServiceName = PhReferenceObject(randomServiceName);
+
+        status = KphConnect(&config);
+
+        if (NT_SUCCESS(status))
+        {
+            //
+            // N.B. These settings **must** be persisted to allow subsequent
+            // clients to successfully connect or unload the natively loaded
+            // driver.
+            //
+            PhSetIntegerSetting(L"KsiEnableLoadNative", TRUE);
+            PhSetIntegerSetting(L"KsiEnableLoadFilter", FALSE);
+            PhSetStringSetting2(L"KsiServiceName", &randomServiceName->sr);
+            PhSetStringSetting2(L"KsiPortName", &randomPortName->sr);
+            PhSetStringSetting2(L"KsiObjectName", &randomObjectName->sr);
+
+            if (!PhIsNullOrEmptyString(PhSettingsFileName))
+                PhSaveSettings(&PhSettingsFileName->sr);
+
+            PhShowKsiMessage(
+                WindowHandle,
+                TD_INFORMATION_ICON,
+                L"Kernel driver loaded",
+                L"The kernel driver was successfully loaded using an alternate "
+                L"method. The settings used to load the driver have been saved. "
+                L"You can revert these settings in the advanced options."
+                );
+        }
+
+        PhDereferenceObject(randomServiceName);
+        PhDereferenceObject(randomPortName);
+        PhDereferenceObject(randomObjectName);
+    }
+
+    if (!NT_SUCCESS(status))
+    {
         PhShowKsiMessageEx(
             WindowHandle,
             TD_ERROR_ICON,
@@ -868,7 +1105,7 @@ VOID KsiConnect(
         if ((level == KphLevelHigh) &&
             !PhStartupParameters.KphStartupMax)
         {
-            PH_STRINGREF commandline = PH_STRINGREF_INIT(L" -kx");
+            static CONST PH_STRINGREF commandline = PH_STRINGREF_INIT(L" -kx");
             status = PhRestartSelf(&commandline);
         }
 
@@ -876,7 +1113,7 @@ VOID KsiConnect(
             !PhStartupParameters.KphStartupMax &&
             !PhStartupParameters.KphStartupHigh)
         {
-            PH_STRINGREF commandline = PH_STRINGREF_INIT(L" -kh");
+            static CONST PH_STRINGREF commandline = PH_STRINGREF_INIT(L" -kh");
             status = PhRestartSelf(&commandline);
         }
 
@@ -926,7 +1163,6 @@ CleanupExit:
     PhClearReference(&objectName);
     PhClearReference(&portName);
     PhClearReference(&altitude);
-    PhClearReference(&ksiServiceName);
     PhClearReference(&ksiFileName);
     PhClearReference(&tempDriverDir);
 
@@ -1054,20 +1290,6 @@ VOID PhInitializeKsi(
             );
         return;
     }
-    if (WindowsVersion == WINDOWS_NEW)
-    {
-        PhShowKsiMessageEx(
-            NULL,
-            TD_ERROR_ICON,
-            0,
-            FALSE,
-            L"Unable to load kernel driver",
-            L"The kernel driver is not supported on preview builds. If this is "
-            L"not a preview build, request support by submitting a GitHub issue "
-            L"with the Windows Kernel version."
-            );
-        return;
-    }
 
     if (PhDoesOldKsiExist())
     {
@@ -1110,6 +1332,10 @@ VOID PhInitializeKsi(
         return;
     }
 
+    KphInitialize();
+    PhInformerInitialize();
+
+    KsiServiceName = PhGetKsiServiceName();
     KsiEnableLoadNative = !!PhGetIntegerSetting(L"KsiEnableLoadNative");
     KsiEnableLoadFilter = !!PhGetIntegerSetting(L"KsiEnableLoadFilter");
 
@@ -1124,7 +1350,6 @@ NTSTATUS PhCleanupKsi(
     )
 {
     NTSTATUS status;
-    PPH_STRING ksiServiceName;
     KPH_CONFIG_PARAMETERS config = { 0 };
     BOOLEAN shouldUnload;
 
@@ -1149,18 +1374,14 @@ NTSTATUS PhCleanupKsi(
     }
 
     KphCommsStop();
-
 #ifdef DEBUG
-    KsiDebugLogDestroy();
+    KsiDebugLogFinalize();
 #endif
 
     if (!shouldUnload)
         return STATUS_SUCCESS;
 
-    if (!(ksiServiceName = PhGetKsiServiceName()))
-        return STATUS_UNSUCCESSFUL;
-
-    config.ServiceName = &ksiServiceName->sr;
+    config.ServiceName = &KsiServiceName->sr;
     config.EnableNativeLoad = KsiEnableLoadNative;
     config.EnableFilterLoad = KsiEnableLoadFilter;
     status = KphServiceStop(&config);
@@ -1238,18 +1459,16 @@ PVOID PhCreateKsiSettingsBlob(
 #else
     directory = PhGetApplicationDirectoryWin32();
 #endif
-    value = PhConvertUtf16ToUtf8Ex(directory->Buffer, directory->Length);
-    PhDereferenceObject(directory);
-
+    value = PhConvertStringToUtf8(directory);
     PhAddJsonObject2(object, "KsiDirectory", value->Buffer, value->Length);
     PhDereferenceObject(value);
+    PhDereferenceObject(directory);
 
     serviceName = PhGetKsiServiceName();
-    value = PhConvertUtf16ToUtf8Ex(serviceName->Buffer, serviceName->Length);
-    PhDereferenceObject(serviceName);
-
+    value = PhConvertStringToUtf8(serviceName);
     PhAddJsonObject2(object, "KsiServiceName", value->Buffer, value->Length);
     PhDereferenceObject(value);
+    PhDereferenceObject(serviceName);
 
     value = PhGetJsonArrayString(object, FALSE);
     string = PhBufferToHexString((PUCHAR)value->Buffer, (ULONG)value->Length);
@@ -1258,4 +1477,43 @@ PVOID PhCreateKsiSettingsBlob(
     PhFreeJsonObject(object);
 
     return string;
+}
+
+NTSTATUS PhQueryKphCounters(
+    _Out_ PULONG64 Duration,
+    _Out_ PULONG64 DurationDown,
+    _Out_ PULONG64 DurationUp
+    )
+{
+    NTSTATUS status;
+    LARGE_INTEGER performanceCounterStart;
+    LARGE_INTEGER performanceCounterStop;
+    LARGE_INTEGER performanceCounter;
+    ULONG64 performanceCounterDuration;
+    ULONG64 performanceCounterDown;
+    ULONG64 performanceCounterUp;
+
+    if (KsiLevel() < KphLevelLow)
+    {
+        *Duration = 0;
+        *DurationDown = 0;
+        *DurationUp = 0;
+        status = STATUS_UNSUCCESSFUL;
+    }
+    else
+    {
+        PhQueryPerformanceCounter(&performanceCounterStart);
+        status = KphQueryPerformanceCounter(&performanceCounter, NULL);
+        PhQueryPerformanceCounter(&performanceCounterStop);
+
+        performanceCounterDuration = performanceCounterStop.QuadPart - performanceCounterStart.QuadPart;
+        performanceCounterDown = performanceCounter.QuadPart - performanceCounterStart.QuadPart;
+        performanceCounterUp = performanceCounterStop.QuadPart - performanceCounter.QuadPart;
+
+        *Duration = performanceCounterDuration;
+        *DurationDown = performanceCounterDown;
+        *DurationUp = performanceCounterUp;
+    }
+
+    return status;
 }

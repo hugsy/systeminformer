@@ -19,7 +19,15 @@ extern PPH_OBJECT_TYPE PhThreadItemType;
 // begin_phapppub
 typedef struct _PH_THREAD_ITEM
 {
-    HANDLE ThreadId;
+    union
+    {
+        CLIENT_ID ClientId;
+        struct
+        {
+            HANDLE ProcessId;
+            HANDLE ThreadId;
+        };
+    };
 
     LARGE_INTEGER CreateTime;
     LARGE_INTEGER KernelTime;
@@ -35,6 +43,8 @@ typedef struct _PH_THREAD_ITEM
 
     KPRIORITY Priority;
     KPRIORITY BasePriority;
+    PKAFFINITY AffinityMasks; // PhSystemProcessorInformation.NumberOfProcessorGroups
+    ULONG AffinityPopulationCount;
     ULONG WaitTime;
     KTHREAD_STATE State;
     KWAIT_REASON WaitReason;
@@ -44,7 +54,16 @@ typedef struct _PH_THREAD_ITEM
 
     PPH_STRING ServiceName;
 
-    ULONG64 StartAddress;
+    PVOID StartAddressWin32;
+    PVOID StartAddress;
+
+    NTSTATUS ThreadHandleStatus;
+    NTSTATUS StartAddressStatus;
+
+    PPH_STRING StartAddressWin32String;
+    PPH_STRING StartAddressWin32FileName;
+    enum _PH_SYMBOL_RESOLVE_LEVEL StartAddressWin32ResolveLevel;
+
     PPH_STRING StartAddressString;
     PPH_STRING StartAddressFileName;
     enum _PH_SYMBOL_RESOLVE_LEVEL StartAddressResolveLevel;
@@ -121,7 +140,7 @@ VOID PhLoadSymbolsThreadProvider(
     );
 
 PPH_THREAD_ITEM PhCreateThreadItem(
-    _In_ HANDLE ThreadId
+    _In_ CLIENT_ID ClientId
     );
 
 PPH_THREAD_ITEM PhReferenceThreadItem(

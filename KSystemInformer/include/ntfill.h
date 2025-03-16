@@ -315,7 +315,7 @@ typedef struct _OBJECT_HEADER
     QUAD Body;
 } OBJECT_HEADER, *POBJECT_HEADER;
 
-#if (defined _M_X64) || (defined _M_ARM64)
+#if defined(_M_X64) || defined(_M_ARM64)
 C_ASSERT(FIELD_OFFSET(OBJECT_HEADER, Body) == 0x030);
 C_ASSERT(sizeof(OBJECT_HEADER) == 0x038);
 #else
@@ -401,6 +401,8 @@ typedef struct _REG_SAVE_MERGED_KEY_INFORMATION
 
 #define VS_FFI_SIGNATURE        0xFEEF04BDL
 
+typedef struct _IMAGE_RESOURCE_DATA_ENTRY IMAGE_RESOURCE_DATA_ENTRY, *PIMAGE_RESOURCE_DATA_ENTRY;
+
 NTKERNELAPI
 NTSTATUS
 NTAPI
@@ -457,6 +459,8 @@ typedef struct _FIXEDFILEINFO
     DWORD   dwFileDateMS;
     DWORD   dwFileDateLS;
 } VS_FIXEDFILEINFO, *PVS_FIXEDFILEINFO;
+
+typedef struct _NON_PAGED_DEBUG_INFO NON_PAGED_DEBUG_INFO, *PNON_PAGED_DEBUG_INFO;
 
 typedef struct _KLDR_DATA_TABLE_ENTRY
 {
@@ -771,6 +775,27 @@ PS_GET_PROCESS_START_KEY(
     _In_ PEPROCESS Process
     );
 typedef PS_GET_PROCESS_START_KEY* PPS_GET_PROCESS_START_KEY;
+
+typedef struct _PROCESS_TELEMETRY_ID_INFORMATION
+{
+    ULONG HeaderSize;
+    ULONG ProcessId;
+    ULONGLONG ProcessStartKey;
+    ULONGLONG CreateTime;
+    ULONGLONG CreateInterruptTime;
+    ULONGLONG CreateUnbiasedInterruptTime;
+    ULONGLONG ProcessSequenceNumber;
+    ULONGLONG SessionCreateTime;
+    ULONG SessionId;
+    ULONG BootId;
+    ULONG ImageChecksum;
+    ULONG ImageTimeDateStamp;
+    ULONG UserSidOffset;
+    ULONG ImagePathOffset;
+    ULONG PackageNameOffset;
+    ULONG RelativeAppNameOffset;
+    ULONG CommandLineOffset;
+} PROCESS_TELEMETRY_ID_INFORMATION, *PPROCESS_TELEMETRY_ID_INFORMATION;
 
 // RTL
 
@@ -1772,6 +1797,26 @@ typedef struct _CFG_CALL_TARGET_LIST_INFORMATION
 
 #define SeDebugPrivilege RtlConvertUlongToLuid(SE_DEBUG_PRIVILEGE)
 #define SeCreateTokenPrivilege RtlConvertUlongToLuid(SE_CREATE_TOKEN_PRIVILEGE)
+
+NTKERNELAPI
+NTSTATUS
+NTAPI
+SeCaptureSecurityDescriptor(
+    _In_ PSECURITY_DESCRIPTOR OriginalSecurityDescriptor,
+    _In_ KPROCESSOR_MODE CurrentMode,
+    _In_ POOL_TYPE PoolType,
+    _In_ BOOLEAN CaptureIfKernel,
+    _Out_ PSECURITY_DESCRIPTOR *CapturedSecurityDescriptor
+    );
+
+NTKERNELAPI
+NTSTATUS
+NTAPI
+SeReleaseSecurityDescriptor(
+    _In_ PSECURITY_DESCRIPTOR CapturedSecurityDescriptor,
+    _In_ KPROCESSOR_MODE CurrentMode,
+    _In_ BOOLEAN CaptureIfKernelMode
+    );
 
 #if (NTDDI_VERSION >= NTDDI_WINBLUE)
 NTKERNELAPI

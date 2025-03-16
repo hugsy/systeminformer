@@ -136,12 +136,12 @@ VOID EtFormatNetworkSize(
 }
 
 VOID EtFormatDouble(
-    _In_ DOUBLE Value,
+    _In_ FLOAT Value,
     _In_ PET_PROCESS_BLOCK Block,
     _In_ PPH_PLUGIN_TREENEW_MESSAGE Message
     )
 {
-    if (Value >= 0.01)
+    if (Value >= 0.01f)
     {
         PH_FORMAT format[1];
 
@@ -318,6 +318,66 @@ CleanupExit:
     return status;
 }
 
+NTSTATUS EtpQueryAdapterProperty(
+    _In_ D3DKMT_HANDLE AdapterHandle,
+    _In_ PPH_STRINGREF PropertyName,
+    _Out_ D3DDDI_QUERYREGISTRY_INFO** PropertyInfo
+    )
+{
+    NTSTATUS status;
+    ULONG queryBufferLength;
+    D3DDDI_QUERYREGISTRY_INFO* queryBuffer;
+
+    queryBufferLength = FIELD_OFFSET(D3DDDI_QUERYREGISTRY_INFO, OutputString[MAX_PATH]);
+    queryBuffer = PhAllocateZero(queryBufferLength);
+    queryBuffer->QueryType = D3DDDI_QUERYREGISTRY_ADAPTERKEY;
+    queryBuffer->QueryFlags.TranslatePath = 1;
+    queryBuffer->ValueType = REG_MULTI_SZ;
+    memcpy(queryBuffer->ValueName, PropertyName->Buffer, PropertyName->Length);
+
+    status = EtQueryAdapterInformation(
+        AdapterHandle,
+        KMTQAITYPE_QUERYREGISTRY,
+        queryBuffer,
+        queryBufferLength
+        );
+
+    if (!NT_SUCCESS(status))
+        goto CleanupExit;
+
+    if (queryBuffer->Status == D3DDDI_QUERYREGISTRY_STATUS_BUFFER_OVERFLOW)
+    {
+        queryBufferLength = queryBuffer->OutputValueSize;
+        queryBuffer = PhReAllocate(queryBuffer, queryBufferLength);
+
+        status = EtQueryAdapterInformation(
+            AdapterHandle,
+            KMTQAITYPE_QUERYREGISTRY,
+            queryBuffer,
+            queryBufferLength
+            );
+
+        if (!NT_SUCCESS(status))
+            goto CleanupExit;
+    }
+
+    if (queryBuffer->Status != D3DDDI_QUERYREGISTRY_STATUS_SUCCESS)
+    {
+        status = STATUS_REGISTRY_IO_FAILED;
+        goto CleanupExit;
+    }
+
+    if (NT_SUCCESS(status))
+    {
+        *PropertyInfo = queryBuffer;
+        return status;
+    }
+
+CleanupExit:
+    PhFree(queryBuffer);
+    return status;
+}
+
 // HardwareDevices!GraphicsQueryAdapterAttributes
 NTSTATUS EtQueryAdapterAttributes(
     _In_ D3DKMT_HANDLE AdapterHandle,
@@ -327,26 +387,39 @@ NTSTATUS EtQueryAdapterAttributes(
     static PH_STRINGREF dxCoreAttributes = PH_STRINGREF_INIT(L"DXCoreAttributes");
     static PH_STRINGREF dxAttributes = PH_STRINGREF_INIT(L"DXAttributes");
     NTSTATUS status;
-    PPH_STRING adapterAttributes;
+    D3DDDI_QUERYREGISTRY_INFO* adapterAttributes;
+    PWSTR attributes;
 
     Attributes->Flags = 0;
 
-    // DXCoreAdapter::QueryAndFillAdapterExtendedProperiesOnPlatform
-    if (!NT_SUCCESS(status = EtpQueryAdapterPropertyString(AdapterHandle, &dxCoreAttributes, &adapterAttributes)))
-        if (!NT_SUCCESS(status = EtpQueryAdapterPropertyString(AdapterHandle, &dxAttributes, &adapterAttributes)))
-            return status;
+    status = EtpQueryAdapterProperty(AdapterHandle, &dxCoreAttributes, &adapterAttributes);
 
-    for (PWCHAR attr = adapterAttributes->Buffer;;)
+    if (!NT_SUCCESS(status))
+    {
+        status = EtpQueryAdapterProperty(AdapterHandle, &dxAttributes, &adapterAttributes);
+
+        if (!NT_SUCCESS(status))
+            return status;
+    }
+
+    attributes = adapterAttributes->OutputString;
+
+    // DXCoreAdapter::QueryAndFillAdapterExtendedProperiesOnPlatform
+    //if (!NT_SUCCESS(status = EtpQueryAdapterPropertyString(AdapterHandle, &dxCoreAttributes, &adapterAttributes)))
+    //    if (!NT_SUCCESS(status = EtpQueryAdapterPropertyString(AdapterHandle, &dxAttributes, &adapterAttributes)))
+    //        return status;
+
+    for (;;)
     {
         PH_STRINGREF attribute;
         GUID guid;
 
-        PhInitializeStringRef(&attribute, attr);
+        PhInitializeStringRefLongHint(&attribute, attributes);
 
         if (!attribute.Length)
             break;
 
-        attr = PTR_ADD_OFFSET(attr, attribute.Length + sizeof(UNICODE_NULL));
+        attributes = PTR_ADD_OFFSET(attributes, attribute.Length + sizeof(UNICODE_NULL));
 
         if (!NT_SUCCESS(status = PhStringToGuid(&attribute, &guid)))
             break;
@@ -412,7 +485,7 @@ NTSTATUS EtQueryAdapterAttributes(
         }
     }
 
-    PhDereferenceObject(adapterAttributes);
+    PhFree(adapterAttributes);
 
     return status;
 }

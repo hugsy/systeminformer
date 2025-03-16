@@ -12,7 +12,6 @@
 
 #include <phapp.h>
 #include <phplug.h>
-#include <phsettings.h>
 #include <settings.h>
 #include <mainwnd.h>
 #include <emenu.h>
@@ -29,9 +28,13 @@ INT_PTR CALLBACK PhpLogDlgProc(
 HWND PhLogWindowHandle = NULL;
 static PH_LAYOUT_MANAGER WindowLayoutManager;
 static RECT MinimumSize;
+static HWND AutoScrollHandle;
 static HWND ListViewHandle;
+static IListView* ListViewClass;
 static ULONG ListViewCount;
 static PH_CALLBACK_REGISTRATION LoggedRegistration;
+static BOOLEAN ListViewStateInitializing = FALSE;
+static BOOLEAN ListViewAutoScroll = FALSE;
 
 VOID PhShowLogDialog(
     VOID
@@ -61,7 +64,10 @@ static VOID NTAPI LoggedCallback(
     _In_opt_ PVOID Context
     )
 {
-    PostMessage(PhLogWindowHandle, WM_PH_LOG_UPDATED, 0, 0);
+    if (PhLogWindowHandle)
+    {
+        PostMessage(PhLogWindowHandle, WM_PH_LOG_UPDATED, 0, 0);
+    }
 }
 
 static VOID PhpUpdateLogList(
@@ -69,13 +75,19 @@ static VOID PhpUpdateLogList(
     )
 {
     ListViewCount = PhLogBuffer.Count;
-    ListView_SetItemCountEx(ListViewHandle, ListViewCount, LVSICF_NOSCROLL);
+    IListView_SetItemCount(ListViewClass, ListViewCount, LVSICF_NOSCROLL);
 
-    if (ListViewCount >= 2 && Button_GetCheck(GetDlgItem(PhLogWindowHandle, IDC_AUTOSCROLL)) == BST_CHECKED)
+    if (ListViewCount >= 2 && ReadBooleanAcquire(&ListViewAutoScroll))
     {
-        if (ListView_IsItemVisible(ListViewHandle, ListViewCount - 2))
+        LVITEMINDEX itemIndex;
+        //BOOL itemVisible;
+
+        itemIndex.iItem = (LONG)ListViewCount - 1;
+        itemIndex.iGroup = INT_ERROR;
+
+        //if (SUCCEEDED(IListView_IsItemVisible(ListViewClass, itemIndex, &itemVisible)) && !itemVisible)
         {
-            ListView_EnsureVisible(ListViewHandle, ListViewCount - 1, FALSE);
+            IListView_EnsureItemVisible(ListViewClass, itemIndex, FALSE);
         }
     }
 }
@@ -99,11 +111,12 @@ static PPH_STRING PhpGetStringForSelectedLogEntries(
         PPH_LOG_ENTRY entry;
         SYSTEMTIME systemTime;
         PPH_STRING temp;
+        ULONG itemState;
 
         if (!All)
         {
             // The list view displays the items in reverse order...
-            if (!(ListView_GetItemState(ListViewHandle, ListViewCount - i - 1, LVIS_SELECTED) & LVIS_SELECTED))
+            if (!(HR_SUCCESS(IListView_GetItemState(ListViewClass, ListViewCount - i - 1, 0, LVIS_SELECTED, &itemState)) && FlagOn(itemState, LVIS_SELECTED)))
             {
                 goto ContinueLoop;
             }
@@ -149,19 +162,24 @@ INT_PTR CALLBACK PhpLogDlgProc(
         {
             PhSetApplicationWindowIcon(hwndDlg);
 
+            AutoScrollHandle = GetDlgItem(hwndDlg, IDC_AUTOSCROLL);
             ListViewHandle = GetDlgItem(hwndDlg, IDC_LIST);
-            PhSetListViewStyle(ListViewHandle, FALSE, TRUE);
+            ListViewClass = PhGetListViewInterface(ListViewHandle);
+
+            PhSetListViewStyle(ListViewHandle, TRUE, TRUE);
             PhSetControlTheme(ListViewHandle, L"explorer");
-            PhAddListViewColumn(ListViewHandle, 0, 0, 0, LVCFMT_LEFT, 140, L"Time");
-            PhAddListViewColumn(ListViewHandle, 1, 1, 1, LVCFMT_LEFT, 260, L"Message");
-            PhLoadListViewColumnsFromSetting(L"LogListViewColumns", ListViewHandle);
+            PhSetExtendedListView(ListViewHandle);
+            PhAddIListViewColumn(ListViewClass, 0, 0, 0, LVCFMT_LEFT, 140, L"Time");
+            PhAddIListViewColumn(ListViewClass, 1, 1, 1, LVCFMT_LEFT, 260, L"Message");
+            PhLoadIListViewColumnsFromSetting(L"LogListViewColumns", ListViewClass);
+            IListView_EnableAlphaShadow(ListViewClass, TRUE);
 
             PhInitializeLayoutManager(&WindowLayoutManager, hwndDlg);
             PhAddLayoutItem(&WindowLayoutManager, GetDlgItem(hwndDlg, IDC_LIST), NULL, PH_ANCHOR_ALL);
             PhAddLayoutItem(&WindowLayoutManager, GetDlgItem(hwndDlg, IDOK), NULL, PH_ANCHOR_RIGHT | PH_ANCHOR_BOTTOM);
             PhAddLayoutItem(&WindowLayoutManager, GetDlgItem(hwndDlg, IDC_COPY), NULL, PH_ANCHOR_RIGHT | PH_ANCHOR_BOTTOM);
             PhAddLayoutItem(&WindowLayoutManager, GetDlgItem(hwndDlg, IDC_SAVE), NULL, PH_ANCHOR_RIGHT | PH_ANCHOR_BOTTOM);
-            PhAddLayoutItem(&WindowLayoutManager, GetDlgItem(hwndDlg, IDC_AUTOSCROLL), NULL, PH_ANCHOR_BOTTOM | PH_ANCHOR_LEFT);
+            PhAddLayoutItem(&WindowLayoutManager, AutoScrollHandle, NULL, PH_ANCHOR_BOTTOM | PH_ANCHOR_LEFT);
             PhAddLayoutItem(&WindowLayoutManager, GetDlgItem(hwndDlg, IDC_CLEAR), NULL, PH_ANCHOR_BOTTOM | PH_ANCHOR_LEFT);
 
             MinimumSize.left = 0;
@@ -170,23 +188,25 @@ INT_PTR CALLBACK PhpLogDlgProc(
             MinimumSize.bottom = 150;
             MapDialogRect(hwndDlg, &MinimumSize);
 
-            if (PhGetIntegerPairSetting(L"LogWindowPosition").X)
+            if (PhValidWindowPlacementFromSetting(L"LogWindowPosition"))
                 PhLoadWindowPlacementFromSetting(L"LogWindowPosition", L"LogWindowSize", hwndDlg);
             else
                 PhCenterWindow(hwndDlg, PhMainWndHandle);
 
-            Button_SetCheck(GetDlgItem(hwndDlg, IDC_AUTOSCROLL), BST_CHECKED);
+            ListViewStateInitializing = TRUE;
+            WriteBooleanRelease(&ListViewAutoScroll, TRUE);
+            Button_SetCheck(AutoScrollHandle, BST_CHECKED);
+            ListViewStateInitializing = FALSE;
 
             PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackLoggedEvent), LoggedCallback, NULL, &LoggedRegistration);
             PhpUpdateLogList();
-            ListView_EnsureVisible(ListViewHandle, ListViewCount - 1, FALSE);
 
             PhInitializeWindowTheme(hwndDlg, PhEnableThemeSupport);
         }
         break;
     case WM_DESTROY:
         {
-            PhSaveListViewColumnsToSetting(L"LogListViewColumns", ListViewHandle);
+            PhSaveIListViewColumnsToSetting(L"LogListViewColumns", ListViewClass);
             PhSaveWindowPlacementToSetting(L"LogWindowPosition", L"LogWindowSize", hwndDlg);
 
             PhDeleteLayoutManager(&WindowLayoutManager);
@@ -194,6 +214,9 @@ INT_PTR CALLBACK PhpLogDlgProc(
             PhUnregisterCallback(PhGetGeneralCallback(GeneralCallbackLoggedEvent), &LoggedRegistration);
             PhUnregisterDialog(PhLogWindowHandle);
             PhLogWindowHandle = NULL;
+
+            PhDestroyListViewInterface(ListViewClass);
+            ListViewClass = NULL;
         }
         break;
     case WM_COMMAND:
@@ -213,9 +236,9 @@ INT_PTR CALLBACK PhpLogDlgProc(
             case IDC_COPY:
                 {
                     PPH_STRING string;
-                    ULONG selectedCount;
+                    ULONG selectedCount = 0;
 
-                    selectedCount = ListView_GetSelectedCount(ListViewHandle);
+                    IListView_GetSelectedCount(ListViewClass, &selectedCount);
 
                     if (selectedCount == 0)
                     {
@@ -283,6 +306,11 @@ INT_PTR CALLBACK PhpLogDlgProc(
                     PhFreeFileDialog(fileDialog);
                 }
                 break;
+            case IDC_AUTOSCROLL:
+                {
+                    WriteBooleanRelease(&ListViewAutoScroll, Button_GetCheck(AutoScrollHandle) == BST_CHECKED);
+                }
+                break;
             }
         }
         break;
@@ -301,7 +329,7 @@ INT_PTR CALLBACK PhpLogDlgProc(
 
                     if (dispInfo->item.iSubItem == 0)
                     {
-                        if (dispInfo->item.mask & LVIF_TEXT)
+                        if (FlagOn(dispInfo->item.mask, LVIF_TEXT))
                         {
                             SYSTEMTIME systemTime;
                             PPH_STRING dateTime;
@@ -314,7 +342,7 @@ INT_PTR CALLBACK PhpLogDlgProc(
                     }
                     else if (dispInfo->item.iSubItem == 1)
                     {
-                        if (dispInfo->item.mask & LVIF_TEXT)
+                        if (FlagOn(dispInfo->item.mask, LVIF_TEXT))
                         {
                             PPH_STRING string;
 

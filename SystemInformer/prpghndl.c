@@ -29,7 +29,7 @@
 #include <procprv.h>
 #include <secedit.h>
 
-static PH_STRINGREF EmptyHandlesText = PH_STRINGREF_INIT(L"There are no handles to display.");
+static CONST PH_STRINGREF EmptyHandlesText = PH_STRINGREF_INIT(L"There are no handles to display.");
 
 static VOID NTAPI HandleAddedHandler(
     _In_ PVOID Parameter,
@@ -73,6 +73,16 @@ static VOID NTAPI HandlesUpdatedHandler(
     PostMessage(handlesContext->WindowHandle, WM_PH_HANDLES_UPDATED, PhGetRunIdProvider(&handlesContext->ProviderRegistration), 0);
 }
 
+static VOID NTAPI HandlesUpdateAutomaticallyHandler(
+    _In_ PVOID Parameter,
+    _In_ PVOID Context
+    )
+{
+    PPH_HANDLES_CONTEXT handlesContext = (PPH_HANDLES_CONTEXT)Context;
+
+    PhSetEnabledProvider(&handlesContext->ProviderRegistration, (BOOLEAN)PtrToUlong(Parameter));
+}
+
 VOID PhpInitializeHandleMenu(
     _In_ PPH_EMENU Menu,
     _In_ HANDLE ProcessId,
@@ -81,8 +91,6 @@ VOID PhpInitializeHandleMenu(
     _Inout_ PPH_HANDLES_CONTEXT HandlesContext
     )
 {
-    KPH_LEVEL level;
-
     if (NumberOfHandles == 0)
     {
         PhSetFlagsAllEMenuItems(Menu, PH_EMENU_DISABLED, PH_EMENU_DISABLED);
@@ -105,10 +113,8 @@ VOID PhpInitializeHandleMenu(
         PhEnableEMenuItem(Menu, ID_HANDLE_COPY, TRUE);
     }
 
-    level = KsiLevel();
-
     // Protected, Inherit
-    if (NumberOfHandles == 1 && (level >= KphLevelMed))
+    if (NumberOfHandles == 1)
     {
         HandlesContext->SelectedHandleProtected = FALSE;
         HandlesContext->SelectedHandleInherit = FALSE;
@@ -272,7 +278,14 @@ BOOLEAN PhpHandleTreeFilterCallback(
             return TRUE;
     }
 
-    // TODO: Add search for handleItem->Attributes
+    if (handleNode->HandleItem->Attributes & OBJ_PROTECT_CLOSE && PhSearchControlMatchZ(handlesContext->SearchMatchHandle, L"Protected"))
+    {
+        return TRUE;
+    }
+    if (handleNode->HandleItem->Attributes & OBJ_INHERIT && PhSearchControlMatchZ(handlesContext->SearchMatchHandle, L"Inherit"))
+    {
+        return TRUE;
+    }
 
     // node properties
 
@@ -349,13 +362,23 @@ NTSTATUS PhpProcessHandleOpenCallback(
 }
 
 NTSTATUS PhpProcessHandleCloseCallback(
-    _In_ PVOID Context
+    _In_opt_ HANDLE Handle,
+    _In_opt_ BOOLEAN Release,
+    _In_opt_ PVOID Context
     )
 {
     PHANDLE_OPEN_CONTEXT context = Context;
 
-    PhDereferenceObject(context->HandleItem);
-    PhFree(context);
+    if (Handle)
+    {
+        NtClose(Handle);
+    }
+
+    if (Release && context)
+    {
+        PhDereferenceObject(context->HandleItem);
+        PhFree(context);
+    }
 
     return STATUS_SUCCESS;
 }
@@ -478,6 +501,13 @@ INT_PTR CALLBACK PhpProcessHandlesDlgProc(
             PhSetEnabledProvider(&handlesContext->ProviderRegistration, TRUE);
             PhBoostProvider(&handlesContext->ProviderRegistration, NULL);
 
+            PhRegisterCallback(
+                PhGetGeneralCallback(GeneralCallbackUpdateAutomatically),
+                HandlesUpdateAutomaticallyHandler,
+                handlesContext,
+                &handlesContext->ChangedEventRegistration
+                );
+
             PhInitializeWindowTheme(hwndDlg, PhEnableThemeSupport);
         }
         break;
@@ -503,6 +533,11 @@ INT_PTR CALLBACK PhpProcessHandlesDlgProc(
                 &handlesContext->Provider->HandleUpdatedEvent,
                 &handlesContext->UpdatedEventRegistration
                 );
+            PhUnregisterCallback(
+                PhGetGeneralCallback(GeneralCallbackUpdateAutomatically),
+                &handlesContext->ChangedEventRegistration
+                );
+
             PhUnregisterProvider(&handlesContext->ProviderRegistration);
             PhDereferenceObject(handlesContext->Provider);
             PhDeleteProviderEventQueue(&handlesContext->EventQueue);

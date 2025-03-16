@@ -16,55 +16,13 @@ static HWND EtPoolTagDialogHandle = NULL;
 static HANDLE EtPoolTagDialogThreadHandle = NULL;
 static PH_EVENT EtPoolTagDialogInitializedEvent = PH_EVENT_INIT;
 
-NTSTATUS EtEnumPoolTagTable(
-    _Out_ PVOID* Buffer
-    )
-{
-    NTSTATUS status;
-    PVOID buffer;
-    ULONG bufferSize;
-    ULONG attempts;
-
-    bufferSize = 0x100;
-    buffer = PhAllocate(bufferSize);
-
-    status = NtQuerySystemInformation(
-        SystemPoolTagInformation,
-        buffer,
-        bufferSize,
-        &bufferSize
-        );
-    attempts = 0;
-
-    while (status == STATUS_INFO_LENGTH_MISMATCH && attempts < 8)
-    {
-        PhFree(buffer);
-        buffer = PhAllocate(bufferSize);
-
-        status = NtQuerySystemInformation(
-            SystemPoolTagInformation,
-            buffer,
-            bufferSize,
-            &bufferSize
-            );
-        attempts++;
-    }
-
-    if (NT_SUCCESS(status))
-        *Buffer = buffer;
-    else
-        PhFree(buffer);
-
-    return status;
-}
-
 VOID EtUpdatePoolTagTable(
     _Inout_ PPOOLTAG_CONTEXT Context
     )
 {
     PSYSTEM_POOLTAG_INFORMATION poolTagTable;
 
-    if (!NT_SUCCESS(EtEnumPoolTagTable(&poolTagTable)))
+    if (!NT_SUCCESS(PhEnumPoolTagInformation(&poolTagTable)))
         return;
 
     for (ULONG i = 0; i < poolTagTable->Count; i++)
@@ -84,6 +42,10 @@ VOID EtUpdatePoolTagTable(
             PhUpdateDelta(&node->PoolItem->NonPagedFreesDelta, poolTagInfo.NonPagedFrees);
             PhUpdateDelta(&node->PoolItem->NonPagedCurrentDelta, poolTagInfo.NonPagedAllocs - poolTagInfo.NonPagedFrees);
             PhUpdateDelta(&node->PoolItem->NonPagedTotalSizeDelta, poolTagInfo.NonPagedUsed);
+            PhUpdateDelta(&node->PoolItem->AllocsDelta, poolTagInfo.PagedAllocs + poolTagInfo.NonPagedAllocs);
+            PhUpdateDelta(&node->PoolItem->FreesDelta, poolTagInfo.PagedFrees + poolTagInfo.NonPagedFrees);
+            PhUpdateDelta(&node->PoolItem->CurrentDelta, (poolTagInfo.PagedAllocs - poolTagInfo.PagedFrees) + (poolTagInfo.NonPagedAllocs - poolTagInfo.NonPagedFrees));
+            PhUpdateDelta(&node->PoolItem->TotalSizeDelta, poolTagInfo.PagedUsed + poolTagInfo.NonPagedUsed);
             node->PoolItem->HaveFirstSample = TRUE;
 
             EtUpdatePoolTagNode(Context, node);
@@ -104,6 +66,10 @@ VOID EtUpdatePoolTagTable(
             PhUpdateDelta(&entry->NonPagedFreesDelta, poolTagInfo.NonPagedFrees);
             PhUpdateDelta(&entry->NonPagedCurrentDelta, poolTagInfo.NonPagedAllocs - poolTagInfo.NonPagedFrees);
             PhUpdateDelta(&entry->NonPagedTotalSizeDelta, poolTagInfo.NonPagedUsed);
+            PhUpdateDelta(&entry->AllocsDelta, poolTagInfo.PagedAllocs + poolTagInfo.NonPagedAllocs);
+            PhUpdateDelta(&entry->FreesDelta, poolTagInfo.PagedFrees + poolTagInfo.NonPagedFrees);
+            PhUpdateDelta(&entry->CurrentDelta, (poolTagInfo.PagedAllocs - poolTagInfo.PagedFrees) + (poolTagInfo.NonPagedAllocs - poolTagInfo.NonPagedFrees));
+            PhUpdateDelta(&entry->TotalSizeDelta, poolTagInfo.PagedUsed + poolTagInfo.NonPagedUsed);
 
             EtUpdatePoolTagBinaryName(Context, entry, poolTagInfo.TagUlong);
 
@@ -149,17 +115,14 @@ BOOLEAN EtPoolTagTreeFilterCallback(
 }
 
 VOID NTAPI EtPoolMonProcessesUpdatedCallback(
-    _In_opt_ PVOID Parameter,
+    _In_ PVOID Parameter,
     _In_ PVOID Context
     )
 {
     PPOOLTAG_CONTEXT context = Context;
 
-    if (context->ProcessesUpdatedCount < 2)
-    {
-        context->ProcessesUpdatedCount++;
+    if (PtrToUlong(Parameter) < 3)
         return;
-    }
 
     EtUpdatePoolTagTable(Context);
 }
@@ -376,6 +339,18 @@ INT_PTR CALLBACK EtPoolMonDlgProc(
             }
         }
         break;
+    case WM_KEYDOWN:
+        {
+        if (LOWORD(wParam) == 'K')
+            {
+                if (GetKeyState(VK_CONTROL) < 0)
+                {
+                    SetFocus(context->SearchboxHandle);
+                    return TRUE;
+                }
+            }
+        }
+        break;
     case WM_CTLCOLORBTN:
         return HANDLE_WM_CTLCOLORBTN(hwndDlg, wParam, lParam, PhWindowThemeControlColor);
     case WM_CTLCOLORDLG:
@@ -411,7 +386,7 @@ NTSTATUS EtShowPoolMonDialogThread(
 
     while (result = GetMessage(&message, NULL, 0, 0))
     {
-        if (result == -1)
+        if (result == INT_ERROR)
             break;
 
         if (!IsDialogMessage(EtPoolTagDialogHandle, &message))
@@ -444,7 +419,7 @@ VOID EtShowPoolTableDialog(
     {
         if (!NT_SUCCESS(PhCreateThreadEx(&EtPoolTagDialogThreadHandle, EtShowPoolMonDialogThread, ParentWindowHandle)))
         {
-            PhShowError(ParentWindowHandle, L"%s", L"Unable to create the window.");
+            PhShowError2(ParentWindowHandle, L"Unable to create the window.", L"%s", L"");
             return;
         }
 

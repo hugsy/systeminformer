@@ -460,12 +460,24 @@ NTSTATUS PhSvcApiUnloadDriver(
 {
     NTSTATUS status;
     PPH_STRING name;
+    PPH_STRING file;
 
-    if (NT_SUCCESS(status = PhSvcCaptureString(&Payload->u.UnloadDriver.i.Name, TRUE, &name)))
+    if (!NT_SUCCESS(status = PhSvcCaptureString(&Payload->u.UnloadDriver.i.Name, TRUE, &name)))
+        return status;
+    if (!NT_SUCCESS(status = PhSvcCaptureString(&Payload->u.UnloadDriver.i.FileName, TRUE, &file)))
+        return status;
+
+    if (!(PhIsNullOrEmptyString(name) && PhIsNullOrEmptyString(file)))
     {
-        status = PhUnloadDriver(Payload->u.UnloadDriver.i.BaseAddress, PhGetString(name));
-        PhClearReference(&name);
+        status = PhUnloadDriver(Payload->u.UnloadDriver.i.BaseAddress, &name->sr, &file->sr);
     }
+    else
+    {
+        status = STATUS_DATA_ERROR;
+    }
+
+    PhClearReference(&name);
+    PhClearReference(&file);
 
     return status;
 }
@@ -516,7 +528,7 @@ NTSTATUS PhSvcApiControlProcess(
                 UCHAR priorityClass;
 
                 priorityClass = (UCHAR)Payload->u.ControlProcess.i.Argument;
-                status = PhSetProcessPriority(processHandle, priorityClass);
+                status = PhSetProcessPriorityClass(processHandle, priorityClass);
 
                 NtClose(processHandle);
             }
@@ -559,74 +571,125 @@ NTSTATUS PhSvcApiControlService(
 
     if (NT_SUCCESS(status = PhSvcCaptureString(&Payload->u.ControlService.i.ServiceName, FALSE, &serviceName)))
     {
-        PH_AUTO(serviceName);
-
         switch (Payload->u.ControlService.i.Command)
         {
         case PhSvcControlServiceStart:
-            if (NT_SUCCESS(status = PhOpenService(
-                &serviceHandle,
-                SERVICE_START,
-                PhGetString(serviceName)
-                )))
             {
-                status = PhStartService(serviceHandle, 0, NULL);
+                if (NT_SUCCESS(status = PhOpenService(
+                    &serviceHandle,
+                    SERVICE_START,
+                    PhGetString(serviceName)
+                    )))
+                {
+                    status = PhStartService(serviceHandle, 0, NULL);
 
-                PhCloseServiceHandle(serviceHandle);
+                    PhCloseServiceHandle(serviceHandle);
+                }
             }
             break;
         case PhSvcControlServiceContinue:
-            if (NT_SUCCESS(status = PhOpenService(
-                &serviceHandle,
-                SERVICE_PAUSE_CONTINUE,
-                PhGetString(serviceName)
-                )))
             {
-                status = PhContinueService(serviceHandle);
+                if (NT_SUCCESS(status = PhOpenService(
+                    &serviceHandle,
+                    SERVICE_PAUSE_CONTINUE,
+                    PhGetString(serviceName)
+                    )))
+                {
+                    status = PhContinueService(serviceHandle);
 
-                PhCloseServiceHandle(serviceHandle);
+                    PhCloseServiceHandle(serviceHandle);
+                }
             }
             break;
         case PhSvcControlServicePause:
-            if (NT_SUCCESS(status = PhOpenService(
-                &serviceHandle,
-                SERVICE_PAUSE_CONTINUE,
-                PhGetString(serviceName)
-                )))
             {
-                status = PhPauseService(serviceHandle);
+                if (NT_SUCCESS(status = PhOpenService(
+                    &serviceHandle,
+                    SERVICE_PAUSE_CONTINUE,
+                    PhGetString(serviceName)
+                    )))
+                {
+                    status = PhPauseService(serviceHandle);
 
-                PhCloseServiceHandle(serviceHandle);
+                    PhCloseServiceHandle(serviceHandle);
+                }
             }
             break;
         case PhSvcControlServiceStop:
-            if (NT_SUCCESS(status = PhOpenService(
-                &serviceHandle,
-                SERVICE_STOP,
-                PhGetString(serviceName)
-                )))
             {
-                status = PhStopService(serviceHandle);
+                if (NT_SUCCESS(status = PhOpenService(
+                    &serviceHandle,
+                    SERVICE_STOP,
+                    PhGetString(serviceName)
+                    )))
+                {
+                    status = PhStopService(serviceHandle);
 
-                PhCloseServiceHandle(serviceHandle);
+                    PhCloseServiceHandle(serviceHandle);
+                }
             }
             break;
         case PhSvcControlServiceDelete:
-            if (NT_SUCCESS(status = PhOpenService(
-                &serviceHandle,
-                DELETE,
-                PhGetString(serviceName)
-                )))
             {
-                status = PhDeleteService(serviceHandle);
+                if (NT_SUCCESS(status = PhOpenService(
+                    &serviceHandle,
+                    DELETE,
+                    PhGetString(serviceName)
+                    )))
+                {
+                    status = PhDeleteService(serviceHandle);
 
-                PhCloseServiceHandle(serviceHandle);
+                    PhCloseServiceHandle(serviceHandle);
+                }
+            }
+            break;
+        case PhSvcControlServiceRestart:
+            {
+                if (NT_SUCCESS(status = PhOpenService(
+                    &serviceHandle,
+                    SERVICE_QUERY_STATUS | SERVICE_STOP | SERVICE_START,
+                    PhGetString(serviceName)
+                    )))
+                {
+                    status = PhStopService(serviceHandle);
+
+                    if (NT_SUCCESS(status))
+                    {
+                        status = PhWaitForServiceStatus(
+                            serviceHandle,
+                            SERVICE_STOPPED,
+                            60 * 1000
+                            );
+
+                        if (NT_SUCCESS(status))
+                        {
+                            status = PhStartService(
+                                serviceHandle,
+                                0,
+                                NULL
+                                );
+
+                            if (NT_SUCCESS(status))
+                            {
+                                status = PhWaitForServiceStatus(
+                                    serviceHandle,
+                                    SERVICE_RUNNING,
+                                    60 * 1000
+                                    );
+                            }
+                        }
+                    }
+
+                    PhCloseServiceHandle(serviceHandle);
+                }
             }
             break;
         default:
             status = STATUS_INVALID_PARAMETER;
             break;
         }
+
+        PhDereferenceObject(serviceName);
     }
 
     return status;
@@ -1086,7 +1149,7 @@ NTSTATUS PhSvcApiSetTcpEntry(
     } tcpRow;
     ULONG result;
 
-    localSetTcpEntry = InterlockedCompareExchangePointer(&setTcpEntry, NULL, NULL);
+    localSetTcpEntry = ReadPointerAcquire(&setTcpEntry);
 
     if (!localSetTcpEntry)
     {
@@ -1393,7 +1456,7 @@ NTSTATUS PhSvcApiWriteMiniDumpProcess(
     HRESULT status = E_UNEXPECTED;
     HANDLE snapshotHandle = NULL;
 
-    if (NT_SUCCESS(PhCreateProcessSnapshot(&snapshotHandle, processHandle, NULL)))
+    if (NT_SUCCESS(PhCreateProcessSnapshot(&snapshotHandle, processHandle)))
     {
         processDumpType =
             MiniDumpWithFullMemory |

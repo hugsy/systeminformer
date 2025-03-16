@@ -12,7 +12,6 @@
 #include <phapp.h>
 #include <settings.h>
 #include <colmgr.h>
-#include <mainwnd.h>
 #include <emenu.h>
 #include <symprv.h>
 #include <phplug.h>
@@ -71,7 +70,7 @@ typedef struct _PH_THREAD_STACKS_THREAD_NODE
 
     HANDLE ThreadId;
     HANDLE ThreadHandle;
-    ULONG64 StartAddress;
+    PVOID StartAddress;
     PPH_STRING ThreadName;
     WCHAR ThreadIdString[PH_INT32_STR_LEN_1];
     WCHAR StartAddressString[PH_PTR_STR_LEN_1];
@@ -331,7 +330,7 @@ VOID PhpThreadStacksMessage(
         return;
 
     va_start(args, Format);
-    message = PhFormatString_V((PWSTR)Format, args);
+    message = PhFormatString_V(Format, args);
     va_end(args);
 
     PhAcquireQueuedLockExclusive(&context->MessageLock);
@@ -386,15 +385,15 @@ VOID PhpThreadStacksCreateThreadNode(
         ULONG_PTR startAddress;
 
         if (NT_SUCCESS(PhGetThreadStartAddress(node->Thread.ThreadHandle, &startAddress)))
-            node->Thread.StartAddress = (ULONG64)startAddress;
+            node->Thread.StartAddress = (PVOID)startAddress;
 
         PhGetThreadName(node->Thread.ThreadHandle, &node->Thread.ThreadName);
     }
 
     if (!node->Thread.StartAddress)
-        node->Thread.StartAddress = (ULONG64)ThreadInfo->StartAddress;
+        node->Thread.StartAddress = (PVOID)ThreadInfo->StartAddress;
 
-    PhPrintPointer(node->Thread.StartAddressString, (PVOID)node->Thread.StartAddress);
+    PhPrintPointer(node->Thread.StartAddressString, node->Thread.StartAddress);
 
     if (!PhIsNullOrEmptyString(node->Thread.ThreadName))
         node->Symbol = PhReferenceObject(node->Thread.ThreadName);
@@ -496,7 +495,7 @@ PPH_STRING PhpThreadStacksInitFrameNode(
     PPH_STRING symbol = NULL;
     PPH_STRING fileName = NULL;
     PPH_STRING lineText = NULL;
-    ULONG64 baseAddress = 0;
+    PVOID baseAddress = NULL;
     PPH_STRING lineFileName;
     PH_SYMBOL_LINE_INFORMATION lineInfo;
 
@@ -551,7 +550,7 @@ PPH_STRING PhpThreadStacksInitFrameNode(
     {
         symbol = PhGetSymbolFromAddress(
             FrameNode->Thread->Process->SymbolProvider,
-            (ULONG64)StackFrame->PcAddress,
+            StackFrame->PcAddress,
             NULL,
             &fileName,
             NULL,
@@ -576,7 +575,7 @@ PPH_STRING PhpThreadStacksInitFrameNode(
 
         if (PhGetLineFromAddress(
             FrameNode->Thread->Process->SymbolProvider,
-            (ULONG64)StackFrame->PcAddress,
+            StackFrame->PcAddress,
             &lineFileName,
             NULL,
             &lineInfo
@@ -783,7 +782,7 @@ VOID PhpThreadStacksProcessPhase2(
         PhpThreadStacksMessage(
             Context,
             L"Walking stacks... %lu%% - %ls (%lu) %lu%%",
-            (ULONG)(((FLOAT)Context->WalkedThreads / Context->TotalThreads) * 100),
+            (ULONG)(((FLOAT)Context->WalkedThreads / (FLOAT)Context->TotalThreads) * 100),
             ProcessNode->ProcessName->Buffer,
             HandleToUlong(ProcessNode->ProcessId),
             (ULONG)(((FLOAT)(i + 1) / ProcessNode->Threads->Count) * 100)
@@ -832,7 +831,7 @@ VOID PhpThreadStacksWorkerPhase2(
         PhpThreadStacksMessage(
             Context,
             L"Walking stacks... %lu%% - %ls (%lu)",
-            (ULONG)(((FLOAT)Context->WalkedThreads / Context->TotalThreads) * 100),
+            (ULONG)(((FLOAT)Context->WalkedThreads / (FLOAT)Context->TotalThreads) * 100),
             node->Process.ProcessName->Buffer,
             HandleToUlong(node->Process.ProcessId)
             );
@@ -1414,7 +1413,7 @@ BOOLEAN NTAPI PhpThreadStacksTreeNewCallback(
                         {
                             PPH_PROCESS_PROPCONTEXT propContext;
 
-                            if (propContext = PhCreateProcessPropContext(PhMainWndHandle, processItem))
+                            if (propContext = PhCreateProcessPropContext(NULL, processItem))
                             {
                                 PhShowProcessProperties(propContext);
                                 PhDereferenceObject(propContext);
@@ -1451,7 +1450,7 @@ BOOLEAN NTAPI PhpThreadStacksTreeNewCallback(
                         {
                             PPH_PROCESS_PROPCONTEXT propContext;
 
-                            if (propContext = PhCreateProcessPropContext(PhMainWndHandle, processItem))
+                            if (propContext = PhCreateProcessPropContext(NULL, processItem))
                             {
                                 PhSetSelectThreadIdProcessPropContext(propContext, threadId);
                                 PhShowProcessProperties(propContext);
@@ -1617,7 +1616,6 @@ INT_PTR CALLBACK PhpThreadStacksDlgProc(
     if (uMsg == WM_INITDIALOG)
     {
         context = (PPH_THREAD_STACKS_CONTEXT)lParam;
-
         PhSetWindowContext(hwndDlg, PH_WINDOW_CONTEXT_DEFAULT, context);
     }
     else
@@ -1668,7 +1666,7 @@ INT_PTR CALLBACK PhpThreadStacksDlgProc(
             if (PhGetIntegerPairSetting(L"ThreadStacksWindowPosition").X)
                 PhLoadWindowPlacementFromSetting(L"ThreadStacksWindowPosition", L"ThreadStacksWindowSize", hwndDlg);
             else
-                PhCenterWindow(hwndDlg, PhMainWndHandle);
+                PhCenterWindow(hwndDlg, context->ParentWindowHandle);
 
             PhRegisterWindowCallback(hwndDlg, PH_PLUGIN_WINDOW_EVENT_TYPE_TOPMOST, NULL);
 
@@ -1861,7 +1859,7 @@ VOID PhShowThreadStacksDialog(
 
     if (!NT_SUCCESS(PhCreateThread2(PhpThreadStacksDialogThreadStart, context)))
     {
-        PhShowError(ParentWindowHandle, L"%s", L"Unable to create the window.");
+        PhShowStatus(ParentWindowHandle, L"Unable to create the window.", 0, ERROR_OUTOFMEMORY);
         PhDereferenceObject(context);
     }
 }

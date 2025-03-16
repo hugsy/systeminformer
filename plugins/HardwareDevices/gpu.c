@@ -55,11 +55,9 @@ VOID GraphicsDeviceInitialize(
 }
 
 VOID GraphicsDevicesUpdate(
-    VOID
+    _In_ ULONG RunCount
     )
 {
-    static ULONG runCount = 0; // MUST keep in sync with runCount in process provider
-
     PhAcquireQueuedLockShared(&GraphicsDevicesListLock);
 
     for (ULONG i = 0; i < GraphicsDevicesList->Count; i++)
@@ -247,31 +245,31 @@ VOID GraphicsDevicesUpdate(
                     PhQueryPerformanceCounter(&performanceCounter);
                     PhUpdateDelta(&entry->TotalRunningTimeDelta, performanceCounter.QuadPart);
 
-                    DOUBLE elapsedTime = (DOUBLE)entry->TotalRunningTimeDelta.Delta * 10000000 / GraphicsTotalRunningTimeFrequency.QuadPart;
-                    DOUBLE tempValue = 0.0f;
+                    FLOAT elapsedTime = (FLOAT)entry->TotalRunningTimeDelta.Delta * 10000000 / GraphicsTotalRunningTimeFrequency.QuadPart;
+                    FLOAT tempValue = 0.0f;
 
                     if (elapsedTime != 0)
                     {
                         for (ULONG node = 0; node < entry->NumberOfNodes; node++)
                         {
-                            DOUBLE usage = (DOUBLE)(entry->TotalRunningTimeNodesDelta[node].Delta / elapsedTime);
+                            FLOAT usage = (FLOAT)(entry->TotalRunningTimeNodesDelta[node].Delta / elapsedTime);
 
                             if (usage > 1)
                                 usage = 1;
                             if (usage > tempValue)
                                 tempValue = usage;
 
-                            if (runCount != 0)
+                            if (RunCount != 0)
                             {
-                                PhAddItemCircularBuffer_FLOAT(&entry->GpuNodesHistory[node], (FLOAT)usage);
+                                PhAddItemCircularBuffer_FLOAT(&entry->GpuNodesHistory[node], usage);
                             }
                         }
 
-                        entry->CurrentGpuUsage = (FLOAT)tempValue;
+                        entry->CurrentGpuUsage = tempValue;
                     }
                     else
                     {
-                        if (runCount != 0)
+                        if (RunCount != 0)
                         {
                             for (ULONG node = 0; node < entry->NumberOfNodes; node++)
                             {
@@ -288,7 +286,7 @@ VOID GraphicsDevicesUpdate(
         }
         else
         {
-            if (runCount != 0)
+            if (RunCount != 0)
             {
                 for (ULONG node = 0; node < entry->NumberOfNodes; node++)
                 {
@@ -306,7 +304,7 @@ VOID GraphicsDevicesUpdate(
             entry->DevicePresent = FALSE;
         }
 
-        if (runCount != 0)
+        if (RunCount != 0)
         {
             PhAddItemCircularBuffer_FLOAT(&entry->GpuUsageHistory, entry->CurrentGpuUsage);
             PhAddItemCircularBuffer_ULONG64(&entry->DedicatedHistory, entry->CurrentDedicatedUsage);
@@ -321,8 +319,6 @@ VOID GraphicsDevicesUpdate(
     }
 
     PhReleaseQueuedLockShared(&GraphicsDevicesListLock);
-
-    runCount++;
 }
 
 VOID InitializeGraphicsDeviceId(

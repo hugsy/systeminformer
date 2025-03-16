@@ -222,8 +222,8 @@ VOID NetworkDeviceCreateGraphs(
         WS_VISIBLE | WS_CHILD | WS_BORDER,
         0,
         0,
-        3,
-        3,
+        0,
+        0,
         Context->WindowHandle,
         NULL,
         NULL,
@@ -237,8 +237,8 @@ VOID NetworkDeviceCreateGraphs(
         WS_VISIBLE | WS_CHILD | WS_BORDER,
         0,
         0,
-        3,
-        3,
+        0,
+        0,
         Context->WindowHandle,
         NULL,
         NULL,
@@ -256,17 +256,11 @@ VOID NetworkDeviceUpdateGraphs(
 {
     Context->GraphSendState.Valid = FALSE;
     Context->GraphSendState.TooltipIndex = ULONG_MAX;
-    Graph_MoveGrid(Context->GraphSendHandle, 1);
-    Graph_Draw(Context->GraphSendHandle);
-    Graph_UpdateTooltip(Context->GraphSendHandle);
-    InvalidateRect(Context->GraphSendHandle, NULL, FALSE);
+    Graph_Update(Context->GraphSendHandle);
 
     Context->GraphReceiveState.Valid = FALSE;
     Context->GraphReceiveState.TooltipIndex = ULONG_MAX;
-    Graph_MoveGrid(Context->GraphReceiveHandle, 1);
-    Graph_Draw(Context->GraphReceiveHandle);
-    Graph_UpdateTooltip(Context->GraphReceiveHandle);
-    InvalidateRect(Context->GraphReceiveHandle, NULL, FALSE);
+    Graph_Update(Context->GraphReceiveHandle);
 }
 
 VOID NetworkDeviceLayoutGraphs(
@@ -618,6 +612,7 @@ INT_PTR CALLBACK NetworkDeviceDialogProc(
             context->AdapterNameLabel = GetDlgItem(hwndDlg, IDC_DEVICENAME);
 
             PhInitializeLayoutManager(&context->LayoutManager, hwndDlg);
+            PhAddLayoutItem(&context->LayoutManager, context->AdapterTextLabel, NULL, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT | PH_LAYOUT_FORCE_INVALIDATE);
             PhAddLayoutItem(&context->LayoutManager, context->AdapterNameLabel, NULL, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT | PH_LAYOUT_FORCE_INVALIDATE);
             graphItem = PhAddLayoutItem(&context->LayoutManager, GetDlgItem(hwndDlg, IDC_GRAPH_LAYOUT), NULL, PH_ANCHOR_ALL);
             panelItem = PhAddLayoutItem(&context->LayoutManager, GetDlgItem(hwndDlg, IDC_PANEL_LAYOUT), NULL, PH_ANCHOR_LEFT | PH_ANCHOR_RIGHT | PH_ANCHOR_BOTTOM);

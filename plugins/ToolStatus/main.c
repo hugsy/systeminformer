@@ -17,7 +17,6 @@ HWND ProcessTreeNewHandle = NULL;
 HWND ServiceTreeNewHandle = NULL;
 HWND NetworkTreeNewHandle = NULL;
 INT SelectedTabIndex = 0;
-ULONG ProcessesUpdatedCount = 0;
 ULONG MaxInitializationDelay = 3;
 BOOLEAN UpdateAutomatically = TRUE;
 BOOLEAN UpdateGraphs = TRUE;
@@ -26,6 +25,8 @@ BOOLEAN IsWindowSizeMove = FALSE;
 BOOLEAN IsWindowMinimized = FALSE;
 BOOLEAN IsWindowMaximized = FALSE;
 BOOLEAN IconSingleClick = FALSE;
+BOOLEAN EnableAvxSupport = FALSE;
+BOOLEAN EnableGraphMaxScale = FALSE;
 BOOLEAN RestoreRowAfterSearch = FALSE;
 TOOLBAR_DISPLAY_STYLE DisplayStyle = TOOLBAR_DISPLAY_STYLE_SELECTIVETEXT;
 SEARCHBOX_DISPLAY_MODE SearchBoxDisplayMode = SEARCHBOX_DISPLAY_MODE_ALWAYSSHOW;
@@ -34,6 +35,7 @@ HWND RebarHandle = NULL;
 HWND ToolBarHandle = NULL;
 HWND SearchboxHandle = NULL;
 WNDPROC MainWindowHookProc = NULL;
+HWND MainWindowHandle = NULL;
 HMENU MainMenu = NULL;
 HACCEL AcceleratorTable = NULL;
 ULONG_PTR SearchMatchHandle = 0;
@@ -86,18 +88,17 @@ VOID NTAPI ProcessesUpdatedCallback(
     _In_opt_ PVOID Context
     )
 {
-    if (ProcessesUpdatedCount != MaxInitializationDelay)
-    {
-        ProcessesUpdatedCount++;
+    if (PtrToUlong(Parameter) < MaxInitializationDelay)
         return;
-    }
+    if (TaskbarMainWndExiting)
+        return;
 
     PhPluginGetSystemStatistics(&SystemStatistics);
 
     if (ToolStatusConfig.ToolBarEnabled && ToolBarHandle && UpdateGraphs)
         ToolbarUpdateGraphs();
 
-    if (ToolStatusConfig.StatusBarEnabled)
+    if (ToolStatusConfig.StatusBarEnabled && StatusBarHandle && UpdateGraphs)
         StatusBarUpdate(FALSE);
 
     TaskbarUpdateEvents();
@@ -385,14 +386,11 @@ VOID NTAPI TabPageUpdatedCallback(
 }
 
 VOID NTAPI LayoutPaddingCallback(
-    _In_opt_ PVOID Parameter,
-    _In_opt_ PVOID Context
+    _In_ PVOID Parameter,
+    _In_ PVOID Context
     )
 {
     PPH_LAYOUT_PADDING_DATA layoutPadding = Parameter;
-
-    if (!layoutPadding)
-        return;
 
     if (RebarHandle && ToolStatusConfig.ToolBarEnabled)
     {
@@ -525,18 +523,23 @@ VOID InvalidateMainWindowLayout(
     )
 {
     // Invalidate plugin window layout.
-    ProcessHacker_InvalidateLayoutPadding();
+    SystemInformer_InvalidateLayoutPadding();
 
     // Invalidate the main window layout.
-    CallWindowProc(MainWindowHookProc, PhMainWndHandle, WM_SIZE, 0, 0);
+    MainWindowHookProc(MainWindowHandle, WM_SIZE, 0, 0);
 }
 
 VOID UpdateDpiMetrics(
-    VOID
+    _In_ PVOID InvokeContext
     )
 {
     // Update fonts/sizes for new DPI.
-    ToolbarWindowFont = ProcessHacker_GetFont();
+    ToolbarWindowFont = SystemInformer_GetFont();
+
+    if (RebarHandle)
+    {
+        SetWindowFont(RebarHandle, ToolbarWindowFont, TRUE);
+    }
 
     if (ToolBarHandle)
     {
@@ -564,6 +567,10 @@ VOID UpdateDpiMetrics(
 
         SendMessage(ToolBarHandle, TB_SETBUTTONSIZE, 0, MAKELPARAM(0, toolbarButtonHeight));
         RebarAdjustBandHeightLayout(toolbarButtonHeight);
+    }
+
+    if (RebarHandle)
+    {
         SendMessage(RebarHandle, WM_SIZE, 0, 0);
     }
 
@@ -575,18 +582,20 @@ VOID UpdateDpiMetrics(
         statusbarButtonHeight = __max(23, statusbarButtonHeight); // 23/default statusbar height
 
         SendMessage(StatusBarHandle, SB_SETMINHEIGHT, statusbarButtonHeight, 0);
-        //SendMessage(StatusBarHandle, WM_SIZE, 0, 0); // redraw
+        SendMessage(StatusBarHandle, WM_SIZE, 0, 0); // redraw
         StatusBarUpdate(TRUE);
     }
 
     ToolbarGraphsInitializeDpi();
+
+    InvalidateMainWindowLayout();
 }
 
 VOID UpdateLayoutMetrics(
     VOID
     )
 {
-    ToolbarWindowFont = ProcessHacker_GetFont();
+    ToolbarWindowFont = SystemInformer_GetFont();
 
     if (ToolBarHandle)
     {
@@ -627,22 +636,22 @@ BOOLEAN NTAPI MessageLoopFilter(
     )
 {
     if (
-        Message->hwnd == PhMainWndHandle ||
-        Message->hwnd && IsChild(PhMainWndHandle, Message->hwnd)
+        Message->hwnd == MainWindowHandle ||
+        Message->hwnd && IsChild(MainWindowHandle, Message->hwnd)
         )
     {
-        if (TranslateAccelerator(PhMainWndHandle, AcceleratorTable, Message))
+        if (TranslateAccelerator(MainWindowHandle, AcceleratorTable, Message))
             return TRUE;
 
-        if (Message->message == WM_SYSCHAR && ToolStatusConfig.AutoHideMenu && !GetMenu(PhMainWndHandle))
+        if (Message->message == WM_SYSCHAR && ToolStatusConfig.AutoHideMenu && !GetMenu(MainWindowHandle))
         {
             ULONG key = (ULONG)Message->wParam;
 
             if (key == 'h' || key == 'v' || key == 't' || key == 'u' || key == 'e')
             {
-                SetMenu(PhMainWndHandle, MainMenu);
-                DrawMenuBar(PhMainWndHandle);
-                SendMessage(PhMainWndHandle, WM_SYSCHAR, Message->wParam, Message->lParam);
+                SetMenu(MainWindowHandle, MainMenu);
+                DrawMenuBar(MainWindowHandle);
+                SendMessage(MainWindowHandle, WM_SYSCHAR, Message->wParam, Message->lParam);
                 return TRUE;
             }
         }
@@ -680,7 +689,7 @@ VOID DrawWindowBorderForTargeting(
         pen = CreatePen(PS_INSIDEFRAME, penWidth, RGB(0x00, 0x00, 0x00));
         SelectPen(hdc, pen);
 
-        brush = GetStockBrush(NULL_BRUSH);
+        brush = PhGetStockBrush(NULL_BRUSH);
         SelectBrush(hdc, brush);
 
         // Draw the rectangle.
@@ -726,7 +735,7 @@ VOID SetSearchFocus(
             {
                 LONG dpiValue;
 
-                dpiValue = PhGetWindowDpi(hWnd);
+                dpiValue = SystemInformer_GetWindowDpi();
 
                 if (!RebarBandExists(REBAR_BAND_ID_SEARCHBOX))
                     RebarBandInsert(REBAR_BAND_ID_SEARCHBOX, SearchboxHandle, PhGetDpi(180, dpiValue), 22);
@@ -754,10 +763,7 @@ VOID SetSearchFocus(
                     // Select the first visible node.
                     if (node->Visible)
                     {
-                        SetFocus(tnHandle);
-                        TreeNew_SetFocusNode(tnHandle, node);
-                        TreeNew_SetMarkNode(tnHandle, node);
-                        TreeNew_SelectRange(tnHandle, i, i);
+                        TreeNew_FocusMarkSelectNode(tnHandle, node);
                         break;
                     }
                 }
@@ -774,20 +780,26 @@ VOID ToggleSearchFocus(
     SetSearchFocus(hWnd, GetFocus() != SearchboxHandle);
 }
 
-LRESULT CALLBACK MainWndSubclassProc(
-    _In_ HWND hWnd,
-    _In_ UINT uMsg,
+LRESULT CALLBACK MainWindowCallbackProc(
+    _In_ HWND WindowHandle,
+    _In_ UINT WindowMessage,
     _In_ WPARAM wParam,
     _In_ LPARAM lParam
     )
 {
-    switch (uMsg)
+    switch (WindowMessage)
     {
+    case WM_NCCREATE:
+        {
+            MainWindowHandle = WindowHandle;
+        }
+        break;
     case WM_DESTROY:
         {
-            SetWindowLongPtr(hWnd, GWLP_WNDPROC, (LONG_PTR)MainWindowHookProc);
-
             TaskbarMainWndExiting = TRUE;
+
+            SystemInformer_SetWindowProcedure(MainWindowHookProc);
+            PhSetWindowProcedure(WindowHandle, MainWindowHookProc);
         }
         break;
     case WM_ENDSESSION:
@@ -798,9 +810,9 @@ LRESULT CALLBACK MainWndSubclassProc(
     case WM_DPICHANGED:
         {
             // Let System Informer perform the default processing.
-            LRESULT result = CallWindowProc(MainWindowHookProc, hWnd, uMsg, wParam, lParam);
+            LRESULT result = MainWindowHookProc(WindowHandle, WindowMessage, wParam, lParam);
 
-            UpdateDpiMetrics();
+            SystemInformer_Invoke(UpdateDpiMetrics, NULL);
 
             return result;
         }
@@ -844,6 +856,7 @@ LRESULT CALLBACK MainWndSubclassProc(
 
                             if (node = PhFindProcessNode(UlongToHandle(RestoreSearchSelectedProcessId)))
                             {
+                                SystemInformer_SelectTabPage(0);
                                 PhSelectAndEnsureVisibleProcessNode(node);
                             }
 
@@ -873,21 +886,29 @@ LRESULT CALLBACK MainWndSubclassProc(
 
                         goto DefaultWndProc;
                     }
+
+                    if (SearchboxHandle && (GetFocus() == SearchboxHandle))
+                    {
+                        SendMessage(SearchboxHandle, WM_KEYDOWN, VK_ESCAPE, 0);
+                        SetSearchFocus(WindowHandle, FALSE);
+
+                        goto DefaultWndProc;
+                    }
                 }
                 break;
             case ID_SEARCH:
                 // handle keybind Ctrl + K
-                ToggleSearchFocus(hWnd);
+                ToggleSearchFocus(WindowHandle);
                 goto DefaultWndProc;
             case ID_SEARCH_TAB:
                 // handle tab when the searchbox is focused
-                if (GetFocus() == SearchboxHandle)
-                    SetSearchFocus(hWnd, FALSE);
+                if (SearchboxHandle && (GetFocus() == SearchboxHandle))
+                    SetSearchFocus(WindowHandle, FALSE);
                 goto DefaultWndProc;
             case PHAPP_ID_VIEW_ALWAYSONTOP:
                 {
                     // Let System Informer perform the default processing.
-                    LRESULT result = CallWindowProc(MainWindowHookProc, hWnd, uMsg, wParam, lParam);
+                    LRESULT result = MainWindowHookProc(WindowHandle, WindowMessage, wParam, lParam);
 
                     // Query the settings.
                     BOOLEAN isAlwaysOnTopEnabled = !!PhGetIntegerSetting(L"MainWindowAlwaysOnTop");
@@ -905,7 +926,7 @@ LRESULT CALLBACK MainWndSubclassProc(
             case PHAPP_ID_UPDATEINTERVAL_VERYSLOW:
                 {
                     // Let System Informer perform the default processing.
-                    LRESULT result = CallWindowProc(MainWindowHookProc, hWnd, uMsg, wParam, lParam);
+                    LRESULT result = MainWindowHookProc(WindowHandle, WindowMessage, wParam, lParam);
 
                     StatusBarUpdate(TRUE);
 
@@ -986,7 +1007,7 @@ LRESULT CALLBACK MainWndSubclassProc(
                                 PPH_EMENU_ITEM menuItem;
                                 LONG dpiValue;
 
-                                dpiValue = PhGetWindowDpi(hWnd);
+                                dpiValue = SystemInformer_GetWindowDpi();
 
                                 // Add toolbar buttons to the context menu.
                                 menuItem = PhCreateEMenuItem(0, buttonInfo.idCommand, ToolbarGetText(buttonInfo.idCommand), NULL, NULL);
@@ -1058,11 +1079,11 @@ LRESULT CALLBACK MainWndSubclassProc(
                             }
                         }
 
-                        MapWindowPoints(RebarHandle, NULL, (LPPOINT)&rebar->rc, 2);
+                        MapWindowRect(RebarHandle, NULL, &rebar->rc);
 
                         selectedItem = PhShowEMenu(
                             menu,
-                            hWnd,
+                            WindowHandle,
                             PH_EMENU_SHOW_LEFTRIGHT,
                             PH_ALIGN_LEFT | PH_ALIGN_TOP,
                             rebar->rc.left,
@@ -1071,7 +1092,7 @@ LRESULT CALLBACK MainWndSubclassProc(
 
                         if (selectedItem && selectedItem->Id != ULONG_MAX)
                         {
-                            SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(selectedItem->Id, BN_CLICKED), 0);
+                            MainWindowHookProc(WindowHandle, WM_COMMAND, MAKEWPARAM(selectedItem->Id, BN_CLICKED), 0);
                         }
 
                         PhDestroyEMenu(menu);
@@ -1120,7 +1141,7 @@ LRESULT CALLBACK MainWndSubclassProc(
 
                             if (toolbarDisplayInfo->iImage == I_IMAGECALLBACK)
                             {
-                                LONG dpiValue = PhGetWindowDpi(hWnd);
+                                LONG dpiValue = SystemInformer_GetWindowDpi();
 
                                 // We didn't find a cached bitmap index...
                                 // Load the button bitmap and cache the index.
@@ -1189,11 +1210,11 @@ LRESULT CALLBACK MainWndSubclassProc(
                                 PhDestroyEMenuItem(menuItemRemove);
                         }
 
-                        MapWindowPoints(ToolBarHandle, NULL, (LPPOINT)&toolbar->rcButton, 2);
+                        MapWindowRect(ToolBarHandle, NULL, &toolbar->rcButton);
 
                         selectedItem = PhShowEMenu(
                             menu,
-                            hWnd,
+                            WindowHandle,
                             PH_EMENU_SHOW_LEFTRIGHT,
                             PH_ALIGN_LEFT | PH_ALIGN_TOP,
                             toolbar->rcButton.left,
@@ -1202,7 +1223,7 @@ LRESULT CALLBACK MainWndSubclassProc(
 
                         if (selectedItem && selectedItem->Id != ULONG_MAX)
                         {
-                            SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(selectedItem->Id, BN_CLICKED), 0);
+                            MainWindowHookProc(WindowHandle, WM_COMMAND, MAKEWPARAM(selectedItem->Id, BN_CLICKED), 0);
                         }
 
                         PhDestroyEMenu(menu);
@@ -1219,13 +1240,13 @@ LRESULT CALLBACK MainWndSubclassProc(
                         if (id == TIDC_FINDWINDOW || id == TIDC_FINDWINDOWTHREAD || id == TIDC_FINDWINDOWKILL)
                         {
                             // Direct all mouse events to this window.
-                            SetCapture(hWnd);
+                            SetCapture(WindowHandle);
 
                             // Set the cursor.
                             PhSetCursor(PhLoadCursor(NULL, IDC_CROSS));
 
                             // Send the window to the bottom.
-                            SetWindowPos(hWnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+                            SetWindowPos(WindowHandle, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
 
                             TargetingWindow = TRUE;
                             TargetingCurrentWindow = NULL;
@@ -1233,13 +1254,13 @@ LRESULT CALLBACK MainWndSubclassProc(
                             TargetingCompleted = FALSE;
                             TargetingMode = id;
 
-                            SendMessage(hWnd, WM_MOUSEMOVE, 0, 0);
+                            SendMessage(WindowHandle, WM_MOUSEMOVE, 0, 0);
                         }
                     }
                     break;
                 case NM_RCLICK:
                     {
-                        ShowCustomizeMenu(hWnd);
+                        ShowCustomizeMenu(WindowHandle);
                     }
                     break;
                 case NM_CUSTOMDRAW:
@@ -1258,7 +1279,7 @@ LRESULT CALLBACK MainWndSubclassProc(
                 {
                 case NM_RCLICK:
                     {
-                        StatusBarShowMenu(hWnd);
+                        StatusBarShowMenu(WindowHandle);
                     }
                     break;
                 }
@@ -1270,7 +1291,7 @@ LRESULT CALLBACK MainWndSubclassProc(
                 if (
                     ToolStatusConfig.ToolBarEnabled &&
                     ToolBarHandle &&
-                    ToolbarUpdateGraphsInfo(hWnd, hdr)
+                    ToolbarUpdateGraphsInfo(WindowHandle, hdr)
                     )
                 {
                     goto DefaultWndProc;
@@ -1284,8 +1305,7 @@ LRESULT CALLBACK MainWndSubclassProc(
             {
                 POINT cursorPos;
                 HWND windowOverMouse;
-                ULONG processId;
-                ULONG threadId;
+                CLIENT_ID clientId;
 
                 GetCursorPos(&cursorPos);
                 windowOverMouse = WindowFromPoint(cursorPos);
@@ -1300,10 +1320,10 @@ LRESULT CALLBACK MainWndSubclassProc(
 
                     if (windowOverMouse)
                     {
-                        threadId = GetWindowThreadProcessId(windowOverMouse, &processId);
+                        PhGetWindowClientId(windowOverMouse, &clientId);
 
                         // Draw a rectangle over the current window (but not if it's one of our own).
-                        if (UlongToHandle(processId) != NtCurrentProcessId())
+                        if (clientId.UniqueProcess != NtCurrentProcessId())
                         {
                             DrawWindowBorderForTargeting(windowOverMouse);
                             TargetingCurrentWindowDraw = TRUE;
@@ -1325,8 +1345,7 @@ LRESULT CALLBACK MainWndSubclassProc(
         {
             if (TargetingWindow)
             {
-                ULONG processId;
-                ULONG threadId;
+                CLIENT_ID clientId;
 
                 TargetingCompleted = TRUE;
 
@@ -1334,7 +1353,7 @@ LRESULT CALLBACK MainWndSubclassProc(
                 PhSetCursor(PhLoadCursor(NULL, IDC_ARROW));
 
                 // Bring the window back to the top, and preserve the Always on Top setting.
-                SetWindowPos(hWnd, PhGetIntegerSetting(L"MainWindowAlwaysOnTop") ? HWND_TOPMOST : HWND_TOP,
+                SetWindowPos(WindowHandle, PhGetIntegerSetting(L"MainWindowAlwaysOnTop") ? HWND_TOPMOST : HWND_TOP,
                     0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
 
                 TargetingWindow = FALSE;
@@ -1356,18 +1375,18 @@ LRESULT CALLBACK MainWndSubclassProc(
                             TargetingCurrentWindow = hungWindow;
                     }
 
-                    threadId = GetWindowThreadProcessId(TargetingCurrentWindow, &processId);
+                    PhGetWindowClientId(TargetingCurrentWindow, &clientId);
 
-                    if (threadId && processId && UlongToHandle(processId) != NtCurrentProcessId())
+                    if (clientId.UniqueThread && clientId.UniqueProcess && clientId.UniqueProcess != NtCurrentProcessId())
                     {
                         PPH_PROCESS_NODE processNode;
 
-                        processNode = PhFindProcessNode(UlongToHandle(processId));
+                        processNode = PhFindProcessNode(clientId.UniqueProcess);
 
                         if (processNode)
                         {
-                            ProcessHacker_SelectTabPage(0);
-                            ProcessHacker_SelectProcessNode(processNode);
+                            SystemInformer_SelectTabPage(0);
+                            SystemInformer_SelectProcessNode(processNode);
                         }
 
                         switch (TargetingMode)
@@ -1377,11 +1396,11 @@ LRESULT CALLBACK MainWndSubclassProc(
                                 PPH_PROCESS_PROPCONTEXT propContext;
                                 PPH_PROCESS_ITEM processItem;
 
-                                if (processItem = PhReferenceProcessItem(UlongToHandle(processId)))
+                                if (processItem = PhReferenceProcessItem(clientId.UniqueProcess))
                                 {
-                                    if (propContext = PhCreateProcessPropContext(hWnd, processItem))
+                                    if (propContext = PhCreateProcessPropContext(WindowHandle, processItem))
                                     {
-                                        PhSetSelectThreadIdProcessPropContext(propContext, UlongToHandle(threadId));
+                                        PhSetSelectThreadIdProcessPropContext(propContext, clientId.UniqueThread);
                                         PhShowProcessProperties(propContext);
                                         PhDereferenceObject(propContext);
                                     }
@@ -1390,7 +1409,7 @@ LRESULT CALLBACK MainWndSubclassProc(
                                 }
                                 else
                                 {
-                                    PhShowError(hWnd, L"The process (PID %lu) does not exist.", processId);
+                                    PhShowError2(WindowHandle, SystemInformer_GetWindowName(), L"The process (PID %lu) does not exist.", HandleToUlong(clientId.UniqueProcess));
                                 }
                             }
                             break;
@@ -1398,14 +1417,14 @@ LRESULT CALLBACK MainWndSubclassProc(
                             {
                                 PPH_PROCESS_ITEM processItem;
 
-                                if (processItem = PhReferenceProcessItem(UlongToHandle(processId)))
+                                if (processItem = PhReferenceProcessItem(clientId.UniqueProcess))
                                 {
-                                    PhUiTerminateProcesses(hWnd, &processItem, 1);
+                                    PhUiTerminateProcesses(WindowHandle, &processItem, 1);
                                     PhDereferenceObject(processItem);
                                 }
                                 else
                                 {
-                                    PhShowError(hWnd, L"The process (PID %lu) does not exist.", processId);
+                                    PhShowError2(WindowHandle, SystemInformer_GetWindowName(), L"The process (PID %lu) does not exist.", HandleToUlong(clientId.UniqueProcess));
                                 }
                             }
                             break;
@@ -1435,7 +1454,7 @@ LRESULT CALLBACK MainWndSubclassProc(
                     }
                 }
 
-                SetWindowPos(hWnd, PhGetIntegerSetting(L"MainWindowAlwaysOnTop") ? HWND_TOPMOST : HWND_TOP,
+                SetWindowPos(WindowHandle, PhGetIntegerSetting(L"MainWindowAlwaysOnTop") ? HWND_TOPMOST : HWND_TOP,
                     0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
 
                 TargetingWindow = FALSE;
@@ -1445,7 +1464,7 @@ LRESULT CALLBACK MainWndSubclassProc(
     case WM_SIZE:
         {
             // Invalidate plugin window layouts.
-            ProcessHacker_InvalidateLayoutPadding();
+            SystemInformer_InvalidateLayoutPadding();
         }
         break;
     case WM_SETTINGCHANGE:
@@ -1481,8 +1500,8 @@ LRESULT CALLBACK MainWndSubclassProc(
             // the window because WindowsNT doesn't always send a SC_RESTORE message...
             // The below code is an attempt at working around this issue. (dmex)
 
-            BOOLEAN minimized = !!IsMinimized(hWnd);
-            BOOLEAN maximized = !!IsMaximized(hWnd);
+            BOOLEAN minimized = !!IsMinimized(WindowHandle);
+            BOOLEAN maximized = !!IsMaximized(WindowHandle);
 
             if (IsWindowMinimized != minimized)
             {
@@ -1525,14 +1544,14 @@ LRESULT CALLBACK MainWndSubclassProc(
                     if (!ToolStatusConfig.AutoHideMenu)
                         break;
 
-                    if (GetMenu(hWnd))
+                    if (GetMenu(WindowHandle))
                     {
-                        SetMenu(hWnd, NULL);
+                        SetMenu(WindowHandle, NULL);
                     }
                     else
                     {
-                        SetMenu(hWnd, MainMenu);
-                        DrawMenuBar(hWnd);
+                        SetMenu(WindowHandle, MainMenu);
+                        DrawMenuBar(WindowHandle);
                     }
                 }
                 break;
@@ -1565,9 +1584,9 @@ LRESULT CALLBACK MainWndSubclassProc(
             if (!ToolStatusConfig.AutoHideMenu)
                 break;
 
-            if (GetMenu(hWnd))
+            if (GetMenu(WindowHandle))
             {
-                SetMenu(hWnd, NULL);
+                SetMenu(WindowHandle, NULL);
             }
         }
         break;
@@ -1578,16 +1597,16 @@ LRESULT CALLBACK MainWndSubclassProc(
                 break;
 
             // Let System Informer perform the default processing.
-            LRESULT result = CallWindowProc(MainWindowHookProc, hWnd, uMsg, wParam, lParam);
+            LRESULT result = MainWindowHookProc(WindowHandle, WindowMessage, wParam, lParam);
 
             // This fixes the search focus for the 'Hide when closed' option. See GH #663 (dmex)
             switch (LOWORD(lParam))
             {
             case WM_LBUTTONDOWN:
                 {
-                    if (IconSingleClick)
+                    if (SearchboxHandle && IconSingleClick)
                     {
-                        if (IsWindowVisible(hWnd))
+                        if (IsWindowVisible(WindowHandle))
                         {
                             SetFocus(SearchboxHandle);
                         }
@@ -1596,9 +1615,9 @@ LRESULT CALLBACK MainWndSubclassProc(
                 break;
             case WM_LBUTTONDBLCLK:
                 {
-                    if (!IconSingleClick)
+                    if (SearchboxHandle && !IconSingleClick)
                     {
-                        if (IsWindowVisible(hWnd))
+                        if (IsWindowVisible(WindowHandle))
                         {
                             SetFocus(SearchboxHandle);
                         }
@@ -1617,13 +1636,13 @@ LRESULT CALLBACK MainWndSubclassProc(
                 break;
 
             // Let System Informer perform the default processing. (dmex)
-            LRESULT result = CallWindowProc(MainWindowHookProc, hWnd, uMsg, wParam, lParam);
+            LRESULT result = MainWindowHookProc(WindowHandle, WindowMessage, wParam, lParam);
 
             // Re-focus the searchbox when we're already running and we're moved
             // into the foreground by the new instance. Fixes GH #178 (dmex)
-            if (result == PH_ACTIVATE_REPLY)
+            if (SearchboxHandle && result == PH_ACTIVATE_REPLY)
             {
-                if (IsWindowVisible(hWnd))
+                if (IsWindowVisible(WindowHandle))
                 {
                     SetFocus(SearchboxHandle);
                 }
@@ -1634,10 +1653,10 @@ LRESULT CALLBACK MainWndSubclassProc(
         break;
     }
 
-    return CallWindowProc(MainWindowHookProc, hWnd, uMsg, wParam, lParam);
+    return MainWindowHookProc(WindowHandle, WindowMessage, wParam, lParam);
 
 DefaultWndProc:
-    return DefWindowProc(hWnd, uMsg, wParam, lParam);
+    return DefWindowProc(WindowHandle, WindowMessage, wParam, lParam);
 }
 
 VOID NTAPI MainWindowShowingCallback(
@@ -1649,14 +1668,11 @@ VOID NTAPI MainWindowShowingCallback(
     PhRegisterMessageLoopFilter(MessageLoopFilter, NULL);
 
     PhRegisterCallback(
-        ProcessHacker_GetCallbackLayoutPadding(),
+        SystemInformer_GetCallbackLayoutPadding(),
         LayoutPaddingCallback,
         NULL,
         &LayoutPaddingCallbackRegistration
         );
-
-    MainWindowHookProc = (WNDPROC)GetWindowLongPtr(PhMainWndHandle, GWLP_WNDPROC);
-    SetWindowLongPtr(PhMainWndHandle, GWLP_WNDPROC, (LONG_PTR)MainWndSubclassProc);
 
     ToolbarLoadSettings(FALSE);
     ToolbarCreateGraphs();
@@ -1664,10 +1680,10 @@ VOID NTAPI MainWindowShowingCallback(
     StatusBarLoadSettings();
     TaskbarInitialize();
 
-    MainMenu = GetMenu(PhMainWndHandle);
+    MainMenu = GetMenu(MainWindowHandle);
     if (ToolStatusConfig.AutoHideMenu)
     {
-        SetMenu(PhMainWndHandle, NULL);
+        SetMenu(MainWindowHandle, NULL);
     }
 
     if (ToolStatusConfig.SearchBoxEnabled && ToolStatusConfig.SearchAutoFocus && SearchboxHandle)
@@ -1719,13 +1735,13 @@ VOID UpdateCachedSettings(
     )
 {
     IconSingleClick = !!PhGetIntegerSetting(L"IconSingleClick");
+    EnableAvxSupport = !!PhGetIntegerSetting(L"EnableAvxSupport");
+    EnableGraphMaxScale = !!PhGetIntegerSetting(L"EnableGraphMaxScale");
 
-    CpuHistoryGraphColor1 = PhGetIntegerSetting(L"ColorCpuKernel");
-    CpuHistoryGraphColor2 = PhGetIntegerSetting(L"ColorCpuUser");
-    PhysicalHistoryGraphColor1 = PhGetIntegerSetting(L"ColorPhysical");
-    CommitHistoryGraph1Color1 = PhGetIntegerSetting(L"ColorPrivate");
-    IoHistoryGraphColor1 = PhGetIntegerSetting(L"ColorIoReadOther");
-    IoHistoryGraphColor2 = PhGetIntegerSetting(L"ColorIoWrite");
+    if (ToolbarInitialized)
+    {
+        SystemInformer_Invoke(UpdateDpiMetrics, NULL);
+    }
 }
 
 VOID NTAPI LoadCallback(
@@ -1746,6 +1762,9 @@ VOID NTAPI LoadCallback(
     // launch and was made configurable per feature request. (dmex)
     MaxInitializationDelay = PhGetIntegerSetting(SETTING_NAME_DELAYED_INITIALIZATION_MAX);
     MaxInitializationDelay = __max(0, __min(MaxInitializationDelay, 5));
+
+    MainWindowHookProc = SystemInformer_GetWindowProcedure();
+    SystemInformer_SetWindowProcedure(MainWindowCallbackProc);
 
     UpdateCachedSettings();
 
@@ -1822,7 +1841,7 @@ VOID NTAPI MenuItemCallback(
 
                     SendMessage(RebarHandle, RB_GETBANDINFO, bandIndex, (LPARAM)&rebarBandInfo);
 
-                    if (!(rebarBandInfo.fStyle & RBBS_GRIPPERALWAYS))
+                    if (!FlagOn(rebarBandInfo.fStyle, RBBS_GRIPPERALWAYS))
                     {
                         // Removing the RBBS_NOGRIPPER style doesn't remove the gripper padding,
                         // So we toggle the RBBS_GRIPPERALWAYS style to make the Toolbar remove the padding.
@@ -1834,7 +1853,7 @@ VOID NTAPI MenuItemCallback(
                         ClearFlag(rebarBandInfo.fStyle, RBBS_GRIPPERALWAYS);
                     }
 
-                    if (rebarBandInfo.fStyle & RBBS_NOGRIPPER)
+                    if (FlagOn(rebarBandInfo.fStyle, RBBS_NOGRIPPER))
                     {
                         ClearFlag(rebarBandInfo.fStyle, RBBS_NOGRIPPER);
                     }
@@ -1921,9 +1940,8 @@ LOGICAL DllMain(
                 return FALSE;
 
             info->DisplayName = L"Toolbar and Status Bar";
-            info->Author = L"dmex, wj32";
-            info->Description = L"Adds a Toolbar, Status Bar and Search box.\r\n\r\nModern Toolbar icons by http://www.icons8.com";
-            info->Interface = &PluginInterface;
+            info->Description = L"Adds a Toolbar, Status Bar and Search box.";
+            info->Interface = (PVOID)&PluginInterface;
 
             PhRegisterCallback(
                 PhGetPluginCallback(PluginInstance, PluginCallbackLoad),

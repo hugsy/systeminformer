@@ -14,21 +14,48 @@
 
 EXTERN_C_START
 
-// Import typedefs
-
-typedef ULONG (WINAPI* _PowerGetActiveScheme)(
-    _In_opt_ HKEY UserRootPowerKey,
-    _Out_ PGUID* ActivePolicyGuid
+PHLIBAPI
+HRESULT
+NTAPI
+PhGetWbemLocatorClass(
+    _Out_ struct IWbemLocator** WbemLocatorClass
     );
 
-typedef ULONG (WINAPI* _PowerSetActiveScheme)(
-    _In_opt_ HKEY UserRootPowerKey,
-    _In_ PGUID SchemeGuid
+PHLIBAPI
+HRESULT
+NTAPI
+PhCoSetProxyBlanket(
+    _In_ IUnknown* InterfacePtr
     );
 
-typedef ULONG (WINAPI* _PowerRestoreDefaultPowerSchemes)(
-    VOID
+PHLIBAPI
+PPH_STRING
+NTAPI
+PhGetWbemClassObjectString(
+    _In_ PVOID WbemClassObject,
+    _In_ PCWSTR Name
     );
+
+PHLIBAPI
+ULONG64
+NTAPI
+PhGetWbemClassObjectUlong64(
+    _In_ PVOID WbemClassObject,
+    _In_ PCWSTR Name
+    );
+
+PHLIBAPI
+PVOID
+NTAPI
+PhGetWbemClassObjectUlongPtr(
+    _In_ PVOID WbemClassObject,
+    _In_ PCWSTR Name
+    );
+
+#define PhStringRefToBSTR(String) \
+    SysAllocStringLen((String)->Buffer, (UINT)(String)->Length / sizeof(WCHAR))
+#define PhStringZToBSTR(String) \
+    SysAllocStringLen((String), (UINT)sizeof(String) - sizeof(UNICODE_NULL) / sizeof(WCHAR))
 
 // powrprof.h
 typedef enum _POWER_DATA_ACCESSOR POWER_DATA_ACCESSOR;
@@ -44,31 +71,7 @@ typedef ULONG (WINAPI* _PowerReadSecurityDescriptor)(
 typedef ULONG (WINAPI* _PowerWriteSecurityDescriptor)(
     _In_ POWER_DATA_ACCESSOR AccessFlags,
     _In_ PGUID PowerGuid,
-    _In_ PWSTR StringSecurityDescriptor
-    );
-
-typedef BOOL (WINAPI* _WTSGetListenerSecurity)(
-    _In_opt_ HANDLE ServerHandle,
-    _In_opt_ PVOID Reserved1,
-    _In_opt_ ULONG Reserved2,
-    _In_ PWSTR ListenerName,
-    _In_ SECURITY_INFORMATION SecurityInformation,
-    _Out_opt_ PSECURITY_DESCRIPTOR SecurityDescriptor,
-    _In_ ULONG Length,
-    _Out_ PULONG LengthNeeded
-    );
-
-typedef BOOL (WINAPI* _WTSSetListenerSecurity)(
-    _In_opt_ HANDLE ServerHandle,
-    _In_opt_ PVOID Reserved1,
-    _In_opt_ ULONG Reserved2,
-    _In_ PWSTR ListenerName,
-    _In_ SECURITY_INFORMATION SecurityInformation,
-    _In_ PSECURITY_DESCRIPTOR SecurityDescriptor
-    );
-
-PVOID PhGetWbemProxImageBaseAddress(
-    VOID
+    _In_ PCWSTR StringSecurityDescriptor
     );
 
 // Power policy

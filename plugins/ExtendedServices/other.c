@@ -52,11 +52,11 @@ static PH_KEY_VALUE_PAIR EspServiceLaunchProtectedPairs[] =
 static WCHAR *EspServiceSidTypeStrings[3] = { L"None", L"Restricted", L"Unrestricted" };
 static WCHAR *EspServiceLaunchProtectedStrings[4] = { L"None", L"Full (Windows)", L"Light (Windows)", L"Light (Antimalware)" };
 
-PWSTR EspGetServiceSidTypeString(
+PCWSTR EspGetServiceSidTypeString(
     _In_ ULONG SidType
     )
 {
-    PWSTR string;
+    PCWSTR string;
 
     if (PhFindStringSiKeyValuePairs(
         EspServiceSidTypePairs,
@@ -70,7 +70,7 @@ PWSTR EspGetServiceSidTypeString(
 }
 
 ULONG EspGetServiceSidTypeInteger(
-    _In_ PWSTR SidType
+    _In_ PCWSTR SidType
     )
 {
     ULONG integer;
@@ -86,11 +86,11 @@ ULONG EspGetServiceSidTypeInteger(
         return ULONG_MAX;
 }
 
-PWSTR EspGetServiceLaunchProtectedString(
+PCWSTR EspGetServiceLaunchProtectedString(
     _In_ ULONG LaunchProtected
     )
 {
-    PWSTR string;
+    PCWSTR string;
 
     if (PhFindStringSiKeyValuePairs(
         EspServiceLaunchProtectedPairs,
@@ -104,7 +104,7 @@ PWSTR EspGetServiceLaunchProtectedString(
 }
 
 ULONG EspGetServiceLaunchProtectedInteger(
-    _In_ PWSTR LaunchProtected
+    _In_ PCWSTR LaunchProtected
     )
 {
     ULONG integer;
@@ -275,8 +275,8 @@ static int __cdecl EspPrivilegeNameCompareFunction(
     _In_ const void *elem2
     )
 {
-    PWSTR string1 = *(PWSTR *)elem1;
-    PWSTR string2 = *(PWSTR *)elem2;
+    PCWSTR string1 = *(PCWSTR *)elem1;
+    PCWSTR string2 = *(PCWSTR *)elem2;
 
     return PhCompareStringZ(string1, string2, TRUE);
 }
@@ -284,7 +284,7 @@ static int __cdecl EspPrivilegeNameCompareFunction(
 NTSTATUS NTAPI EspEnumeratePrivilegesCallback(
     _In_ PPOLICY_PRIVILEGE_DEFINITION Privileges,
     _In_ ULONG NumberOfPrivileges,
-    _In_opt_ PVOID Context
+    _In_ PVOID Context
     )
 {
     for (ULONG i = 0; i < NumberOfPrivileges; i++)
@@ -364,9 +364,10 @@ INT_PTR CALLBACK EspServiceOtherDlgProc(
             {
                 PPH_STRING errorMessage = PhGetNtMessage(status);
 
-                PhShowWarning(
+                PhShowWarning2(
                     WindowHandle,
-                    L"Unable to query service information: %s",
+                    L"Unable to query service information.",
+                    L"%s",
                     PhGetStringOrDefault(errorMessage, L"Unknown error.")
                     );
 
@@ -451,11 +452,14 @@ INT_PTR CALLBACK EspServiceOtherDlgProc(
 
                         if (found)
                         {
-                            if (PhShowMessage(
+                            if (PhShowMessage2(
                                 WindowHandle,
-                                MB_OKCANCEL | MB_ICONERROR,
-                                L"The selected privilege has already been added."
-                                ) == IDOK)
+                                TD_OK_BUTTON | TD_CANCEL_BUTTON,
+                                TD_ERROR_ICON,
+                                 L"The selected privilege has already been added.",
+                                 L"%s",
+                                 L""
+                                 ) == IDOK)
                             {
                                 continue;
                             }
@@ -564,11 +568,24 @@ INT_PTR CALLBACK EspServiceOtherDlgProc(
 
                     if (context->LaunchProtectedValid && launchProtected != 0 && launchProtected != context->OriginalLaunchProtected)
                     {
-                        if (PhShowMessage(
-                            WindowHandle,
-                            MB_ICONWARNING | MB_YESNO | MB_DEFBUTTON2,
-                            L"Setting service protection will prevent the service from being controlled, modified, or deleted. Do you want to continue?"
-                            ) == IDNO)
+                        INT result;
+                        TASKDIALOGCONFIG config = { sizeof(TASKDIALOGCONFIG) };
+
+                        config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
+                        config.dwCommonButtons = TDCBF_YES_BUTTON | TDCBF_NO_BUTTON;
+                        config.nDefaultButton = IDNO;
+                        config.hwndParent = WindowHandle;
+                        config.pszWindowTitle = SystemInformer_GetWindowName();
+                        config.pszMainIcon = TD_WARNING_ICON;
+                        config.pszMainInstruction = L"Setting service protection will prevent the service from being controlled, modified, or deleted.";
+                        config.pszContent = L"Do you want to continue?";
+
+                        if (!PhShowTaskDialog(
+                            &config,
+                            &result,
+                            NULL,
+                            NULL
+                            ) || result != IDYES)
                         {
                             SetWindowLongPtr(WindowHandle, DWLP_MSGRESULT, PSNRET_INVALID);
                             return TRUE;
@@ -681,19 +698,14 @@ Done:
 
                         if (!NT_SUCCESS(status))
                         {
-                            PPH_STRING errorMessage = PhGetNtMessage(status);
-
-                            if (status == STATUS_CANCELLED || PhShowMessage(
+                            if (PhShowContinueStatus(
                                 WindowHandle,
-                                MB_ICONERROR | MB_RETRYCANCEL,
-                                L"Unable to change service information: %s",
-                                PhGetStringOrDefault(errorMessage, L"Unknown error.")
-                                ) == IDRETRY)
+                                L"Unable to change service information.",
+                                status,
+                                0))
                             {
                                 SetWindowLongPtr(WindowHandle, DWLP_MSGRESULT, PSNRET_INVALID);
                             }
-
-                            PhClearReference(&errorMessage);
                         }
                     }
 

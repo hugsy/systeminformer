@@ -309,7 +309,7 @@ PDEVICE_TREE DeviceTreeCreateIfNecessary(
 
 VOID NTAPI DeviceTreePublish(
     _In_opt_ PDEVICE_TREE Tree
-)
+    )
 {
     PDEVICE_TREE oldTree;
 
@@ -369,7 +369,7 @@ NTSTATUS NTAPI DeviceTreePublishThread(
 {
     BOOLEAN force = PtrToUlong(Parameter) ? TRUE : FALSE;
 
-    ProcessHacker_Invoke(DeviceTreePublish, DeviceTreeCreateIfNecessary(force));
+    SystemInformer_Invoke(DeviceTreePublish, DeviceTreeCreateIfNecessary(force));
 
     return STATUS_SUCCESS;
 }
@@ -710,8 +710,13 @@ BOOLEAN NTAPI DeviceTreeCallback(
         return TRUE;
     case TreeNewSortChanged:
         {
-            TreeNew_GetSort(hwnd, &DeviceTreeSortColumn, &DeviceTreeSortOrder);
+            PPH_TREENEW_SORT_CHANGED_EVENT sorting = Parameter1;
+
+            DeviceTreeSortColumn = sorting->SortColumn;
+            DeviceTreeSortOrder = sorting->SortOrder;
+
             TreeNew_NodesStructured(hwnd);
+
             if (DeviceTreeFilterSupport.FilterList)
                 PhApplyTreeNewFilters(&DeviceTreeFilterSupport);
         }
@@ -818,7 +823,7 @@ BOOLEAN NTAPI DeviceTreeCallback(
 
             selectedItem = PhShowEMenu(
                 menu,
-                PhMainWndHandle,
+                SystemInformer_GetWindowHandle(),
                 PH_EMENU_SHOW_LEFTRIGHT,
                 PH_ALIGN_LEFT | PH_ALIGN_TOP,
                 contextMenuEvent->Location.x,
@@ -925,10 +930,10 @@ BOOLEAN NTAPI DeviceTreeCallback(
 
                             if (!PhIsNullOrEmptyString(serviceName))
                             {
-                                if (serviceItem = PhReferenceServiceItem(PhGetString(serviceName)))
+                                if (serviceItem = PhReferenceServiceItem(&serviceName->sr))
                                 {
-                                    ProcessHacker_SelectTabPage(1);
-                                    ProcessHacker_SelectServiceItem(serviceItem);
+                                    SystemInformer_SelectTabPage(1);
+                                    SystemInformer_SelectServiceItem(serviceItem);
                                     PhDereferenceObject(serviceItem);
                                 }
                             }
@@ -1052,9 +1057,12 @@ VOID DevicesTreeImageListInitialize(
             );
     }
 
-    PhImageListAddIcon(DeviceImageList, PhGetApplicationIcon(TRUE));
+    if (DeviceImageList)
+    {
+        PhImageListAddIcon(DeviceImageList, PhGetApplicationIcon(TRUE));
 
-    TreeNew_SetImageList(DeviceTreeHandle, DeviceImageList);
+        TreeNew_SetImageList(DeviceTreeHandle, DeviceImageList);
+    }
 }
 
 const DEVICE_PROPERTY_TABLE_ENTRY DeviceItemPropertyTable[] =
@@ -1261,7 +1269,27 @@ const DEVICE_PROPERTY_TABLE_ENTRY DeviceItemPropertyTable[] =
 
     { PhDevicePropertyObjectType, L"Object type", FALSE, 80, 0 },
 
+    { PhDevicePropertyPciDeviceType, L"PCI device type", FALSE, 80, 0 },
+    { PhDevicePropertyPciCurrentSpeedAndMode, L"PCI current speed and mode", FALSE, 80, 0 },
+    { PhDevicePropertyPciBaseClass, L"PCI base class", FALSE, 80, 0 },
+    { PhDevicePropertyPciSubClass, L"PCI sub class", FALSE, 80, 0 },
+    { PhDevicePropertyPciProgIf, L"PCI programming interface", FALSE, 80, 0 },
+    { PhDevicePropertyPciCurrentPayloadSize, L"PCI current payload size", FALSE, 80, 0 },
+    { PhDevicePropertyPciMaxPayloadSize, L"PCI max payload size", FALSE, 80, 0 },
+    { PhDevicePropertyPciMaxReadRequestSize, L"PCI max read request size", FALSE, 80, 0 },
+    { PhDevicePropertyPciCurrentLinkSpeed, L"PCI current link speed", FALSE, 80, 0 },
+    { PhDevicePropertyPciCurrentLinkWidth, L"PCI current link width", FALSE, 80, 0 },
+    { PhDevicePropertyPciMaxLinkSpeed, L"PCI max link speed", FALSE, 80, 0 },
+    { PhDevicePropertyPciMaxLinkWidth, L"PCI max link width", FALSE, 80, 0 },
+    { PhDevicePropertyPciExpressSpecVersion, L"PCI express spec version", FALSE, 80, 0 },
     { PhDevicePropertyPciInterruptSupport, L"PCI interrupt support", FALSE, 80, 0 },
+    { PhDevicePropertyPciInterruptMessageMaximum, L"PCI interrupt message maximum", FALSE, 80, 0 },
+    { PhDevicePropertyPciBarTypes, L"PCI BAR types", FALSE, 80, 0 },
+    { PhDevicePropertyPciSriovSupport, L"PCI SR-IOV support", FALSE, 80, 0 },
+    { PhDevicePropertyPciLabel_Id, L"PCI label ID", FALSE, 80, 0 },
+    { PhDevicePropertyPciLabel_String, L"PCI label string", FALSE, 80, 0 },
+    { PhDevicePropertyPciSerialNumber, L"PCI serial number", FALSE, 80, 0 },
+
     { PhDevicePropertyPciExpressCapabilityControl, L"PCI express capability control", FALSE, 80, 0 },
     { PhDevicePropertyPciNativeExpressControl, L"PCI native express control", FALSE, 80, 0 },
     { PhDevicePropertyPciSystemMsiSupport, L"PCI system MSI support", FALSE, 80, 0 },
@@ -1287,13 +1315,11 @@ VOID DevicesTreeInitialize(
     DeviceTreeHandle = TreeNewHandle;
 
     PhSetControlTheme(DeviceTreeHandle, L"explorer");
+    TreeNew_SetRedraw(DeviceTreeHandle, FALSE);
     TreeNew_SetCallback(DeviceTreeHandle, DeviceTreeCallback, NULL);
     TreeNew_SetExtendedFlags(DeviceTreeHandle, TN_FLAG_ITEM_DRAG_SELECT, TN_FLAG_ITEM_DRAG_SELECT);
     SendMessage(TreeNew_GetTooltips(DeviceTreeHandle), TTM_SETDELAYTIME, TTDT_AUTOPOP, MAXSHORT);
-
     DevicesTreeImageListInitialize(DeviceTreeHandle);
-
-    TreeNew_SetRedraw(DeviceTreeHandle, FALSE);
 
     for (ULONG i = 0; i < DeviceItemPropertyTableCount; i++)
     {
@@ -1327,24 +1353,6 @@ VOID DevicesTreeInitialize(
             );
     }
 
-    DevicesTreeLoadSettings(DeviceTreeHandle);
-
-    TreeNew_SetRedraw(DeviceTreeHandle, TRUE);
-
-    TreeNew_SetTriState(DeviceTreeHandle, TRUE);
-
-    DeviceTreeUpdateVisibleColumns();
-
-    if (PhGetIntegerSetting(L"TreeListCustomRowSize"))
-    {
-        ULONG treelistCustomRowSize = PhGetIntegerSetting(L"TreeListCustomRowSize");
-
-        if (treelistCustomRowSize < 15)
-            treelistCustomRowSize = 15;
-
-        TreeNew_SetRowHeight(DeviceTreeHandle, treelistCustomRowSize);
-    }
-
     PhInitializeTreeNewFilterSupport(&DeviceTreeFilterSupport, DeviceTreeHandle, &DeviceFilterList);
     if (ToolStatusInterface)
     {
@@ -1356,11 +1364,29 @@ VOID DevicesTreeInitialize(
         PhAddTreeNewFilter(&DeviceTreeFilterSupport, DeviceTreeFilterCallback, NULL);
     }
 
+    if (PhGetIntegerSetting(L"TreeListCustomRowSize"))
+    {
+        ULONG treelistCustomRowSize = PhGetIntegerSetting(L"TreeListCustomRowSize");
+
+        if (treelistCustomRowSize < 15)
+            treelistCustomRowSize = 15;
+
+        TreeNew_SetRowHeight(DeviceTreeHandle, treelistCustomRowSize);
+    }
+
     if (PhGetIntegerSetting(L"EnableThemeSupport"))
     {
         PhInitializeWindowTheme(DeviceTreeHandle, TRUE);
+        PhSetControlTheme(DeviceTreeHandle, L"DarkMode_Explorer");
         TreeNew_ThemeSupport(DeviceTreeHandle, TRUE);
     }
+
+    TreeNew_SetTriState(DeviceTreeHandle, TRUE);
+    TreeNew_SetRedraw(DeviceTreeHandle, TRUE);
+
+    DevicesTreeLoadSettings(DeviceTreeHandle);
+
+    DeviceTreeUpdateVisibleColumns();
 }
 
 BOOLEAN DevicesTabPageCallback(
@@ -1397,8 +1423,8 @@ BOOLEAN DevicesTabPageCallback(
                 WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | TN_STYLE_ICONS | TN_STYLE_DOUBLE_BUFFERED | TN_STYLE_ANIMATE_DIVIDER | thinRows | treelistBorder | treelistCustomColors,
                 0,
                 0,
-                3,
-                3,
+                0,
+                0,
                 Parameter2,
                 NULL,
                 PluginInstance->DllBase,
@@ -1432,7 +1458,17 @@ BOOLEAN DevicesTabPageCallback(
         {
             DeviceTabSelected = (BOOLEAN)Parameter1;
             if (DeviceTabSelected)
+            {
                 DeviceTreePublishAsync(FALSE);
+
+                if (DeviceTreeHandle)
+                {
+                    TreeNew_NodesStructured(DeviceTreeHandle);
+
+                    if (DeviceTreeFilterSupport.FilterList)
+                        PhApplyTreeNewFilters(&DeviceTreeFilterSupport);
+                }
+            }
         }
         break;
     case MainTabPageFontChanged:
@@ -1440,7 +1476,7 @@ BOOLEAN DevicesTabPageCallback(
             HFONT font = (HFONT)Parameter1;
 
             if (DeviceTreeHandle)
-                SendMessage(DeviceTreeHandle, WM_SETFONT, (WPARAM)Parameter1, TRUE);
+                SetWindowFont(DeviceTreeHandle, Parameter1, TRUE);
         }
         break;
     case MainTabPageDpiChanged:
@@ -1486,16 +1522,11 @@ VOID NTAPI ToolStatusActivateContent(
         {
             PDEVICE_NODE node;
 
-            TreeNew_DeselectRange(DeviceTreeHandle, 0, -1);
-
             node = (PDEVICE_NODE)TreeNew_GetFlatNode(DeviceTreeHandle, 0);
 
             if (!node->Node.Visible)
             {
-                TreeNew_SetFocusNode(DeviceTreeHandle, &node->Node);
-                TreeNew_SetMarkNode(DeviceTreeHandle, &node->Node);
-                TreeNew_SelectRange(DeviceTreeHandle, node->Node.Index, node->Node.Index);
-                TreeNew_EnsureVisible(DeviceTreeHandle, &node->Node);
+                TreeNew_FocusMarkSelectNode(DeviceTreeHandle, &node->Node);
             }
         }
     }
@@ -1514,7 +1545,7 @@ VOID NTAPI DeviceProviderCallbackHandler(
     )
 {
     if (DeviceTabCreated && DeviceTabSelected && AutoRefreshDeviceTree)
-        ProcessHacker_Invoke(DeviceTreePublish, DeviceTreeCreateIfNecessary(FALSE));
+        SystemInformer_Invoke(DeviceTreePublish, DeviceTreeCreateIfNecessary(FALSE));
 }
 
 VOID DeviceTreeRemoveDeviceNode(
@@ -1530,6 +1561,9 @@ VOID NTAPI DeviceTreeProcessesUpdatedCallback(
     _In_opt_ PVOID Context
     )
 {
+    if (PtrToUlong(Parameter) < 2)
+        return;
+
     if (!DeviceTreeHandle)
         return;
 

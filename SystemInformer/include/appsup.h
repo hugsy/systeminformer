@@ -35,6 +35,7 @@ PhIsProcessSuspended(
     _In_ HANDLE ProcessId
     );
 
+PHAPPAPI
 BOOLEAN
 NTAPI
 PhIsProcessBackground(
@@ -42,7 +43,7 @@ PhIsProcessBackground(
     );
 
 PHAPPAPI
-PPH_STRINGREF
+PCPH_STRINGREF
 NTAPI
 PhGetProcessPriorityClassString(
     _In_ ULONG PriorityClass
@@ -143,7 +144,7 @@ VOID
 NTAPI
 PhSearchOnlineString(
     _In_ HWND WindowHandle,
-    _In_ PWSTR String
+    _In_ PCWSTR String
     );
 
 PHAPPAPI
@@ -151,10 +152,10 @@ VOID
 NTAPI
 PhShellExecuteUserString(
     _In_ HWND WindowHandle,
-    _In_ PWSTR Setting,
-    _In_ PWSTR String,
+    _In_ PCWSTR Setting,
+    _In_ PCWSTR String,
     _In_ BOOLEAN UseShellExecute,
-    _In_opt_ PWSTR ErrorMessage
+    _In_opt_ PCWSTR ErrorMessage
     );
 
 PHAPPAPI
@@ -177,6 +178,14 @@ VOID
 NTAPI
 PhCopyListView(
     _In_ HWND ListViewHandle
+    );
+
+PHAPPAPI
+VOID
+NTAPI
+PhCopyIListView(
+    _In_ HWND ListViewHandle,
+    _In_ IListView* ListView
     );
 
 PHAPPAPI
@@ -207,6 +216,15 @@ PhGetListViewContextMenuPoint(
     _In_ HWND ListViewHandle,
     _Out_ PPOINT Point
     );
+
+PHAPPAPI
+BOOLEAN
+NTAPI
+PhGetIListViewContextMenuPoint(
+    _In_ IListView* ListView,
+    _Out_ PPOINT Point
+    );
+
 // end_phapppub
 
 VOID PhSetWindowOpacity(
@@ -279,7 +297,7 @@ NTSTATUS
 NTAPI
 PhShellProcessHacker(
     _In_opt_ HWND WindowHandle,
-    _In_opt_ PWSTR Parameters,
+    _In_opt_ PCWSTR Parameters,
     _In_ ULONG ShowWindowType,
     _In_ ULONG Flags,
     _In_ ULONG AppFlags,
@@ -290,8 +308,8 @@ PhShellProcessHacker(
 
 NTSTATUS PhShellProcessHackerEx(
     _In_opt_ HWND WindowHandle,
-    _In_opt_ PWSTR FileName,
-    _In_opt_ PWSTR Parameters,
+    _In_opt_ PCWSTR FileName,
+    _In_opt_ PCWSTR Parameters,
     _In_ ULONG ShowWindowType,
     _In_ ULONG Flags,
     _In_ ULONG AppFlags,
@@ -300,8 +318,8 @@ NTSTATUS PhShellProcessHackerEx(
     );
 
 BOOLEAN PhCreateProcessIgnoreIfeoDebugger(
-    _In_ PWSTR FileName,
-    _In_opt_ PWSTR CommandLine
+    _In_ PCWSTR FileName,
+    _In_opt_ PCWSTR CommandLine
     );
 
 // begin_phapppub
@@ -450,6 +468,7 @@ PhHandleCopyCellEMenuItem(
 typedef struct _PH_COPY_ITEM_CONTEXT
 {
     HWND ListViewHandle;
+    IListView* ListViewClass;
     ULONG Id;
     ULONG SubId;
     PPH_STRING MenuItemText;
@@ -462,6 +481,16 @@ PhInsertCopyListViewEMenuItem(
     _In_ PPH_EMENU_ITEM Menu,
     _In_ ULONG InsertAfterId,
     _In_ HWND ListViewHandle
+    );
+
+PHAPPAPI
+BOOLEAN
+NTAPI
+PhInsertCopyIListViewEMenuItem(
+    _In_ PPH_EMENU_ITEM Menu,
+    _In_ ULONG InsertAfterId,
+    _In_ HWND ListViewHandle,
+    _In_ IListView* ListView
     );
 
 PHAPPAPI
@@ -489,7 +518,7 @@ PhShellOpenKey2(
 // end_phapppub
 
 PPH_STRING PhPcre2GetErrorMessage(
-    _In_ INT ErrorCode
+    _In_ LONG ErrorCode
     );
 
 // begin_phapppub
@@ -598,7 +627,7 @@ BOOLEAN
 NTAPI
 PhWordMatchStringZ(
     _In_ PPH_STRING SearchText,
-    _In_ PWSTR Text
+    _In_ PCWSTR Text
     )
 {
     PH_STRINGREF text;
@@ -613,7 +642,7 @@ BOOLEAN
 NTAPI
 PhWordMatchStringLongHintZ(
     _In_ PPH_STRING SearchText,
-    _In_ PWSTR Text
+    _In_ PCWSTR Text
     )
 {
     PH_STRINGREF text;
@@ -628,6 +657,15 @@ PVOID
 NTAPI
 PhCreateKsiSettingsBlob( // ksisup.c
     VOID
+    );
+
+PHAPPAPI
+NTSTATUS
+NTAPI
+PhQueryKphCounters( // ksisup.c
+    _Out_ PULONG64 Duration,
+    _Out_ PULONG64 DurationDown,
+    _Out_ PULONG64 DurationUp
     );
 // end_phapppub
 

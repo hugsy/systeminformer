@@ -84,11 +84,11 @@ VOID PhGetMemoryProtectionString(
     *string = UNICODE_NULL;
 }
 
-PPH_STRINGREF PhGetMemoryStateString(
+PCPH_STRINGREF PhGetMemoryStateString(
     _In_ ULONG State
     )
 {
-    static PH_STRINGREF MemoryStateString[] =
+    static CONST PH_STRINGREF MemoryStateString[] =
     {
         PH_STRINGREF_INIT(L"Unknown"),
         PH_STRINGREF_INIT(L"Commit"),
@@ -106,11 +106,11 @@ PPH_STRINGREF PhGetMemoryStateString(
         return &MemoryStateString[0];
 }
 
-PPH_STRINGREF PhGetMemoryTypeString(
+PCPH_STRINGREF PhGetMemoryTypeString(
     _In_ ULONG Type
     )
 {
-    static PH_STRINGREF MemoryTypeString[] =
+    static CONST PH_STRINGREF MemoryTypeString[] =
     {
         PH_STRINGREF_INIT(L"Unknown"),
         PH_STRINGREF_INIT(L"Private"),
@@ -128,89 +128,78 @@ PPH_STRINGREF PhGetMemoryTypeString(
         return &MemoryTypeString[0];
 }
 
-PPH_STRINGREF PhGetSigningLevelString(
+static CONST PH_KEY_VALUE_PAIR SigningLevelString[] =
+{
+    SIP(SREF(L"Unchecked"), SE_SIGNING_LEVEL_UNCHECKED),
+    SIP(SREF(L"Unsigned"), SE_SIGNING_LEVEL_UNSIGNED),
+    SIP(SREF(L"Enterprise"), SE_SIGNING_LEVEL_ENTERPRISE),
+    SIP(SREF(L"Developer"), SE_SIGNING_LEVEL_DEVELOPER),
+    SIP(SREF(L"Authenticode"), SE_SIGNING_LEVEL_AUTHENTICODE),
+    SIP(SREF(L"Custom 2"), SE_SIGNING_LEVEL_CUSTOM_2),
+    SIP(SREF(L"StoreApp"), SE_SIGNING_LEVEL_STORE),
+    SIP(SREF(L"Antimalware"), SE_SIGNING_LEVEL_ANTIMALWARE),
+    SIP(SREF(L"Microsoft"), SE_SIGNING_LEVEL_MICROSOFT),
+    SIP(SREF(L"Custom 4"), SE_SIGNING_LEVEL_CUSTOM_4),
+    SIP(SREF(L"Custom 5"), SE_SIGNING_LEVEL_CUSTOM_5),
+    SIP(SREF(L"CodeGen"), SE_SIGNING_LEVEL_DYNAMIC_CODEGEN),
+    SIP(SREF(L"Windows"), SE_SIGNING_LEVEL_WINDOWS),
+    SIP(SREF(L"Custom 7"), SE_SIGNING_LEVEL_CUSTOM_7),
+    SIP(SREF(L"WinTcb"), SE_SIGNING_LEVEL_WINDOWS_TCB),
+    SIP(SREF(L"Custom 6"), SE_SIGNING_LEVEL_CUSTOM_6)
+};
+
+static_assert(ARRAYSIZE(SigningLevelString) == SE_SIGNING_LEVEL_CUSTOM_6 + 1, "SigningLevelString must equal SE_SIGNING_LEVEL_MAX");
+
+PCPH_STRINGREF PhGetSigningLevelString(
     _In_ SE_SIGNING_LEVEL SigningLevel
     )
 {
-    static PH_STRINGREF SigningLevelString[] =
-    {
-        PH_STRINGREF_INIT(L"Unchecked"),
-        PH_STRINGREF_INIT(L"Unsigned"),
-        PH_STRINGREF_INIT(L"Enterprise"),
-        PH_STRINGREF_INIT(L"Developer"),
-        PH_STRINGREF_INIT(L"Authenticode"),
-        PH_STRINGREF_INIT(L"Custom"),
-        PH_STRINGREF_INIT(L"StoreApp"),
-        PH_STRINGREF_INIT(L"Antimalware"),
-        PH_STRINGREF_INIT(L"Microsoft"),
-        PH_STRINGREF_INIT(L"Custom"),
-        PH_STRINGREF_INIT(L"Custom"),
-        PH_STRINGREF_INIT(L"CodeGen"),
-        PH_STRINGREF_INIT(L"Windows"),
-        PH_STRINGREF_INIT(L"Custom"),
-        PH_STRINGREF_INIT(L"WinTcb"),
-        PH_STRINGREF_INIT(L"Custom"),
-    };
+    PCPH_STRINGREF string;
 
-    static_assert(ARRAYSIZE(SigningLevelString) == SE_SIGNING_LEVEL_CUSTOM_6 + 1, "SigningLevelString must equal SE_SIGNING_LEVEL_MAX");
-
-    switch (SigningLevel)
+    if (PhIndexStringRefSiKeyValuePairs(
+        SigningLevelString,
+        sizeof(SigningLevelString),
+        SigningLevel,
+        &string
+        ))
     {
-    case SE_SIGNING_LEVEL_UNCHECKED:
-    case SE_SIGNING_LEVEL_UNSIGNED:
-    case SE_SIGNING_LEVEL_ENTERPRISE:
-    case SE_SIGNING_LEVEL_DEVELOPER:
-    case SE_SIGNING_LEVEL_AUTHENTICODE:
-    case SE_SIGNING_LEVEL_CUSTOM_2:
-    case SE_SIGNING_LEVEL_STORE:
-    case SE_SIGNING_LEVEL_ANTIMALWARE:
-    case SE_SIGNING_LEVEL_MICROSOFT:
-    case SE_SIGNING_LEVEL_CUSTOM_4:
-    case SE_SIGNING_LEVEL_CUSTOM_5:
-    case SE_SIGNING_LEVEL_DYNAMIC_CODEGEN:
-    case SE_SIGNING_LEVEL_WINDOWS:
-    case SE_SIGNING_LEVEL_CUSTOM_7:
-    case SE_SIGNING_LEVEL_WINDOWS_TCB:
-    case SE_SIGNING_LEVEL_CUSTOM_6:
-        return &SigningLevelString[SigningLevel];
+        return string;
     }
 
-    assert(FALSE);
     return NULL;
+}
 
-    //switch (SigningLevel)
-    //{
-    //    case SE_SIGNING_LEVEL_UNCHECKED:
-    //        return L"Unchecked";
-    //    case SE_SIGNING_LEVEL_UNSIGNED:
-    //        return L"Unsigned";
-    //    case SE_SIGNING_LEVEL_ENTERPRISE:
-    //        return L"Enterprise";
-    //    case SE_SIGNING_LEVEL_DEVELOPER:
-    //        return L"Developer";
-    //    case SE_SIGNING_LEVEL_AUTHENTICODE:
-    //        return L"Authenticode";
-    //    case SE_SIGNING_LEVEL_STORE:
-    //        return L"StoreApp";
-    //    case SE_SIGNING_LEVEL_ANTIMALWARE:
-    //        return L"Antimalware";
-    //    case SE_SIGNING_LEVEL_MICROSOFT:
-    //        return L"Microsoft";
-    //    case SE_SIGNING_LEVEL_DYNAMIC_CODEGEN:
-    //        return L"CodeGen";
-    //    case SE_SIGNING_LEVEL_WINDOWS:
-    //        return L"Windows";
-    //    case SE_SIGNING_LEVEL_WINDOWS_TCB:
-    //        return L"WinTcb";
-    //    case SE_SIGNING_LEVEL_CUSTOM_2:
-    //    case SE_SIGNING_LEVEL_CUSTOM_4:
-    //    case SE_SIGNING_LEVEL_CUSTOM_5:
-    //    case SE_SIGNING_LEVEL_CUSTOM_6:
-    //    case SE_SIGNING_LEVEL_CUSTOM_7:
-    //        return L"Custom";
-    //    default:
-    //        return L"";
-    //}
+static CONST PH_KEY_VALUE_PAIR MemoryPriorityString[] =
+{
+    SIP(SREF(L"Lowest"), MEMORY_PRIORITY_LOWEST),
+    SIP(SREF(L"Very low"), MEMORY_PRIORITY_VERY_LOW),
+    SIP(SREF(L"Low"), MEMORY_PRIORITY_LOW),
+    SIP(SREF(L"Medium"), MEMORY_PRIORITY_MEDIUM),
+    SIP(SREF(L"Below normal"), MEMORY_PRIORITY_BELOW_NORMAL),
+    SIP(SREF(L"Normal"), MEMORY_PRIORITY_NORMAL),
+    SIP(SREF(L"Above normal"), MEMORY_PRIORITY_ABOVE_NORMAL),
+    SIP(SREF(L"High"), MEMORY_PRIORITY_HIGH),
+};
+
+static_assert(ARRAYSIZE(MemoryPriorityString) == MEMORY_PRIORITY_HIGH + 1, "MemoryPriorityString must equal MEMORY_PRIORITY_HIGH");
+
+PCPH_STRINGREF PhGetMemoryPagePriorityString(
+    _In_ ULONG PagePriority
+    )
+{
+    PCPH_STRINGREF string;
+
+    if (PhIndexStringRefSiKeyValuePairs(
+        MemoryPriorityString,
+        sizeof(MemoryPriorityString),
+        PagePriority,
+        &string
+        ))
+    {
+        return string;
+    }
+
+    return NULL;
 }
 
 PPH_STRING PhGetMemoryRegionTypeExString(
@@ -391,7 +380,8 @@ VOID PhpUpdateHeapRegions(
 
     status = PhOpenProcess(
         &processHandle,
-        PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_DUP_HANDLE | PROCESS_SET_LIMITED_INFORMATION,
+        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_LIMITED_INFORMATION |
+        PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_DUP_HANDLE,
         List->ProcessId
         );
 
@@ -404,8 +394,7 @@ VOID PhpUpdateHeapRegions(
         {
             status = PhCreateProcessReflection(
                 &reflectionInfo,
-                processHandle,
-                List->ProcessId
+                processHandle
                 );
 
             if (NT_SUCCESS(status))
@@ -551,18 +540,18 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
     // HYPERVISOR_SHARED_DATA
     if (WindowsVersion >= WINDOWS_10_RS4)
     {
-        static PVOID hypervisorSharedUserVa = NULL;
+        static PSYSTEM_HYPERVISOR_USER_SHARED_DATA hypervisorSharedUserData = NULL;
         static PH_INITONCE hypervisorSharedUserInitOnce = PH_INITONCE_INIT;
 
         if (PhBeginInitOnce(&hypervisorSharedUserInitOnce))
         {
-            PhGetSystemHypervisorSharedPageInformation(&hypervisorSharedUserVa);
+            PhGetSystemHypervisorSharedPageInformation(&hypervisorSharedUserData);
             PhEndInitOnce(&hypervisorSharedUserInitOnce);
         }
 
-        if (hypervisorSharedUserVa)
+        if (hypervisorSharedUserData)
         {
-            PhpSetMemoryRegionType(List, hypervisorSharedUserVa, TRUE, HypervisorSharedDataRegion);
+            PhpSetMemoryRegionType(List, hypervisorSharedUserData, TRUE, HypervisorSharedDataRegion);
         }
     }
 
@@ -979,7 +968,7 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
             SIZE_T bytesRead;
 
             // HACK: Windows 10 RS2 and above 'added TEB/PEB sub-VAD segments' and we need to tag individual sections.
-            if (memoryItem = PhpSetMemoryRegionType(List, thread->TebBase, WindowsVersion < WINDOWS_10_RS2 ? TRUE : FALSE, TebRegion))
+            if (memoryItem = PhpSetMemoryRegionType(List, (PVOID)thread->TebBase, WindowsVersion < WINDOWS_10_RS2 ? TRUE : FALSE, TebRegion))
                 memoryItem->u.Teb.ThreadId = thread->ThreadInfo.ClientId.UniqueThread;
 
             if (NT_SUCCESS(NtReadVirtualMemory(ProcessHandle, thread->TebBase, &ntTib, sizeof(NT_TIB), &bytesRead)) &&
@@ -1114,7 +1103,7 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
 
 #ifdef _WIN64
 
-    PPS_SYSTEM_DLL_INIT_BLOCK ldrInitBlock;
+    PS_SYSTEM_DLL_INIT_BLOCK ldrInitBlock;
     PPH_MEMORY_ITEM cfgBitmapMemoryItem;
 
     status = PhGetProcessSystemDllInitBlock(ProcessHandle, &ldrInitBlock);
@@ -1124,10 +1113,10 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
         PVOID cfgBitmapAddress = NULL;
         PVOID cfgBitmapWow64Address = NULL;
 
-        if (RTL_CONTAINS_FIELD(ldrInitBlock, ldrInitBlock->Size, Wow64CfgBitMap))
+        if (RTL_CONTAINS_FIELD(&ldrInitBlock, ldrInitBlock.Size, Wow64CfgBitMap))
         {
-            cfgBitmapAddress = (PVOID)ldrInitBlock->CfgBitMap;
-            cfgBitmapWow64Address = (PVOID)ldrInitBlock->Wow64CfgBitMap;
+            cfgBitmapAddress = (PVOID)ldrInitBlock.CfgBitMap;
+            cfgBitmapWow64Address = (PVOID)ldrInitBlock.Wow64CfgBitMap;
         }
 
         if (cfgBitmapAddress && (cfgBitmapMemoryItem = PhLookupMemoryItemList(List, cfgBitmapAddress)))
@@ -1161,8 +1150,6 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
                 memoryItem = CONTAINING_RECORD(listEntry, PH_MEMORY_ITEM, ListEntry);
             }
         }
-
-        PhFree(ldrInitBlock);
     }
 #endif
 
@@ -1219,7 +1206,7 @@ NTSTATUS PhpUpdateMemoryWsCounters(
             {
                 for (i = 0; i < requestPages; i++)
                 {
-                    PMEMORY_WORKING_SET_EX_BLOCK block = &info[i].u1.VirtualAttributes;
+                    PMEMORY_WORKING_SET_EX_BLOCK block = &info[i].VirtualAttributes;
 
                     if (block->Valid)
                     {
@@ -1398,7 +1385,7 @@ NTSTATUS PhQueryMemoryItemList(
                 NULL
                 )))
             {
-                PMEMORY_WORKING_SET_EX_BLOCK block = &pageInfo.u1.VirtualAttributes;
+                PMEMORY_WORKING_SET_EX_BLOCK block = &pageInfo.VirtualAttributes;
 
                 memoryItem->Valid = !!block->Valid;
                 memoryItem->Bad = !!block->Bad;

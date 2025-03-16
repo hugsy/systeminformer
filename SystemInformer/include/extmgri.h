@@ -1,3 +1,15 @@
+/*
+ * Copyright (c) 2022 Winsider Seminars & Solutions, Inc.  All rights reserved.
+ *
+ * This file is part of System Informer.
+ *
+ * Authors:
+ *
+ *     wj32    2011-2013
+ *     dmex    2017-2022
+ *
+ */
+
 #ifndef PH_EXTMGRI_H
 #define PH_EXTMGRI_H
 
@@ -33,6 +45,12 @@ VOID PhEmSetObjectExtension(
     _In_ SIZE_T ExtensionSize,
     _In_opt_ PPH_EM_OBJECT_CALLBACK CreateCallback,
     _In_opt_ PPH_EM_OBJECT_CALLBACK DeleteCallback
+    );
+
+PVOID PhEmGetObject(
+    _In_ PPH_EM_APP_CONTEXT AppContext,
+    _In_ PH_EM_OBJECT_TYPE ObjectType,
+    _In_ PVOID Extension
     );
 
 PVOID PhEmGetObjectExtension(

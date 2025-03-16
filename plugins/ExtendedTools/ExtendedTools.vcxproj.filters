@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Source Files">
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
@@ -177,6 +177,12 @@
     <ClCompile Include="npusys.c">
       <Filter>Source Files\Neural</Filter>
     </ClCompile>
+    <ClCompile Include="tpm_editor.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="smbios.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h">
@@ -259,17 +265,12 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="CHANGELOG.txt" />
-  </ItemGroup>
-  <ItemGroup>
     <ResourceCompile Include="ExtendedTools.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <Text Include="resources\pooltag.txt">
+    <ResourceCompile Include="version.rc">
       <Filter>Resource Files</Filter>
-    </Text>
+    </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
     <Image Include="resources\folder.ico">
@@ -306,6 +307,36 @@
       <Filter>Resource Files</Filter>
     </Image>
     <Image Include="resources\dll.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="resources\cpu.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="resources\semaphore.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="resources\filterport.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="resources\job.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="resources\memory.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="resources\callback.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="resources\keyedevent.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="resources\type.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="resources\timer.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="resources\winsta.ico">
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>

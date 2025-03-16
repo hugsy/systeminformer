@@ -47,6 +47,7 @@
 #define KPH_TAG_REG_STRING                      '0UpK'
 #define KPH_TAG_REG_BINARY                      '1UpK'
 #define KPH_TAG_FILE_OBJECT_NAME                '2UpK'
+#define KPH_TAG_CAPTURED_UNICODE_STRING         '3UpK'
 
 // vm
 
@@ -88,6 +89,7 @@
 #define KPH_TAG_PROCESS_CONTEXT                 '2cpK'
 #define KPH_TAG_THREAD_CONTEXT                  '3cpK'
 #define KPH_TAG_CID_APC                         '4cpK'
+#define KPH_TAG_PROCESS_IMAGE_FILE_NAME         '5cpK'
 
 // protection
 
@@ -102,21 +104,6 @@
 
 #define KPH_TAG_FILE_QUERY                      '0FpK'
 #define KPH_TAG_VOL_FILE_QUERY                  '1FpK'
-
-// socket
-
-#define KPH_TAG_SOCKET                          '0spK'
-#define KPH_TAG_TLS                             '1spK'
-#define KPH_TAG_TLS_BUFFER                      '2spK'
-
-// http
-
-#define KPH_TAG_HTTP_RESPONSE                   '0hpK'
-
-// download
-
-#define KPH_TAG_DOWNLOAD_REQUEST                '0DpK'
-#define KPH_TAG_DOWNLOAD_CONTEXT                '1DpK'
 
 // back_trace
 

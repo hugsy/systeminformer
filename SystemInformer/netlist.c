@@ -116,12 +116,10 @@ VOID PhInitializeNetworkTreeList(
 {
     NetworkTreeListHandle = TreeNewHandle;
     PhSetControlTheme(NetworkTreeListHandle, L"explorer");
-    SendMessage(TreeNew_GetTooltips(NetworkTreeListHandle), TTM_SETDELAYTIME, TTDT_AUTOPOP, MAXSHORT);
-
-    TreeNew_SetCallback(TreeNewHandle, PhpNetworkTreeNewCallback, NULL);
-    TreeNew_SetImageList(TreeNewHandle, PhProcessSmallImageList);
 
     TreeNew_SetRedraw(TreeNewHandle, FALSE);
+    TreeNew_SetCallback(TreeNewHandle, PhpNetworkTreeNewCallback, NULL);
+    TreeNew_SetImageList(TreeNewHandle, PhProcessSmallImageList);
 
     // Default columns
     PhAddTreeNewColumn(TreeNewHandle, PHNETLC_PROCESS, TRUE, L"Name", 100, PH_ALIGN_LEFT, 0, 0);
@@ -133,16 +131,17 @@ VOID PhInitializeNetworkTreeList(
     PhAddTreeNewColumn(TreeNewHandle, PHNETLC_PROTOCOL, TRUE, L"Protocol", 45, PH_ALIGN_LEFT, 6, 0);
     PhAddTreeNewColumn(TreeNewHandle, PHNETLC_STATE, TRUE, L"State", 70, PH_ALIGN_LEFT, 7, 0);
     PhAddTreeNewColumn(TreeNewHandle, PHNETLC_OWNER, TRUE, L"Owner", 80, PH_ALIGN_LEFT, 8, 0);
+
     PhAddTreeNewColumnEx(TreeNewHandle, PHNETLC_TIMESTAMP, FALSE, L"Time stamp", 100, PH_ALIGN_LEFT, ULONG_MAX, 0, TRUE);
     PhAddTreeNewColumn(TreeNewHandle, PHNETLC_LOCALHOSTNAME, FALSE, L"Local hostname", 120, PH_ALIGN_LEFT, ULONG_MAX, 0);
     PhAddTreeNewColumn(TreeNewHandle, PHNETLC_REMOTEHOSTNAME, FALSE, L"Remote hostname", 120, PH_ALIGN_LEFT, ULONG_MAX, 0);
     PhAddTreeNewColumnEx2(TreeNewHandle, PHNETLC_TIMELINE, FALSE, L"Timeline", 100, PH_ALIGN_LEFT, ULONG_MAX, 0, TN_COLUMN_FLAG_CUSTOMDRAW | TN_COLUMN_FLAG_SORTDESCENDING);
 
-    TreeNew_SetRedraw(TreeNewHandle, TRUE);
-
-    TreeNew_SetSort(TreeNewHandle, 0, AscendingSortOrder);
-
     PhCmInitializeManager(&NetworkTreeListCm, TreeNewHandle, PHNETLC_MAXIMUM, PhpNetworkTreeNewPostSortFunction);
+    PhInitializeTreeNewFilterSupport(&FilterSupport, TreeNewHandle, NetworkNodeList);
+
+    TreeNew_SetTriState(TreeNewHandle, TRUE);
+    TreeNew_SetRedraw(TreeNewHandle, TRUE);
 
     if (PhPluginsEnabled)
     {
@@ -152,8 +151,6 @@ VOID PhInitializeNetworkTreeList(
         treeNewInfo.CmData = &NetworkTreeListCm;
         PhInvokeCallback(PhGetGeneralCallback(GeneralCallbackNetworkTreeNewInitializing), &treeNewInfo);
     }
-
-    PhInitializeTreeNewFilterSupport(&FilterSupport, TreeNewHandle, NetworkNodeList);
 }
 
 VOID PhLoadSettingsNetworkTreeUpdateMask(
@@ -197,9 +194,9 @@ VOID PhLoadSettingsNetworkTreeList(
     PhDereferenceObject(sortSettings);
 
     if (PhGetIntegerSetting(L"EnableInstantTooltips"))
-    {
         SendMessage(TreeNew_GetTooltips(NetworkTreeListHandle), TTM_SETDELAYTIME, TTDT_INITIAL, 0);
-    }
+    else
+        SendMessage(TreeNew_GetTooltips(NetworkTreeListHandle), TTM_SETDELAYTIME, TTDT_AUTOPOP, MAXSHORT);
 
     PhLoadSettingsNetworkTreeUpdateMask();
 }
@@ -222,8 +219,10 @@ VOID PhReloadSettingsNetworkTreeList(
     VOID
     )
 {
-    SendMessage(TreeNew_GetTooltips(NetworkTreeListHandle), TTM_SETDELAYTIME, TTDT_INITIAL,
-        PhGetIntegerSetting(L"EnableInstantTooltips") ? 0 : -1);
+    if (PhGetIntegerSetting(L"EnableInstantTooltips"))
+        SendMessage(TreeNew_GetTooltips(NetworkTreeListHandle), TTM_SETDELAYTIME, TTDT_INITIAL, 0);
+    else
+        SendMessage(TreeNew_GetTooltips(NetworkTreeListHandle), TTM_SETDELAYTIME, TTDT_AUTOPOP, MAXSHORT);
 
     PhLoadSettingsNetworkTreeUpdateMask();
 }
@@ -425,32 +424,36 @@ BEGIN_SORT_FUNCTION(LocalAddress)
 {
     SOCKADDR_IN6 localAddress1;
     SOCKADDR_IN6 localAddress2;
+    SCOPE_ID scopeId1;
+    SCOPE_ID scopeId2;
 
     memset(&localAddress1, 0, sizeof(SOCKADDR_IN6)); // memset for zero padding (dmex)
     memset(&localAddress2, 0, sizeof(SOCKADDR_IN6));
 
-    if (networkItem1->LocalEndpoint.Address.Type == PH_IPV4_NETWORK_TYPE)
+    if (networkItem1->LocalEndpoint.Address.Type == PH_NETWORK_TYPE_IPV4)
     {
         localAddress1.sin6_family = AF_INET6;
         IN6_SET_ADDR_V4COMPAT(&localAddress1.sin6_addr, &networkItem1->LocalEndpoint.Address.InAddr);
         IN4_UNCANONICALIZE_SCOPE_ID(&networkItem1->LocalEndpoint.Address.InAddr, &localAddress1.sin6_scope_struct);
         //IN6ADDR_SETV4MAPPED(&localAddress1, &networkItem1->LocalEndpoint.Address.InAddr, (SCOPE_ID)SCOPEID_UNSPECIFIED_INIT, 0);
     }
-    else if (networkItem1->LocalEndpoint.Address.Type == PH_IPV6_NETWORK_TYPE)
+    else if (networkItem1->LocalEndpoint.Address.Type == PH_NETWORK_TYPE_IPV6)
     {
-        IN6ADDR_SETSOCKADDR(&localAddress1, &networkItem1->LocalEndpoint.Address.In6Addr, (SCOPE_ID){ .Value = networkItem1->LocalScopeId }, 0);
+        scopeId1.Value = networkItem1->LocalScopeId;
+        IN6ADDR_SETSOCKADDR(&localAddress1, &networkItem1->LocalEndpoint.Address.In6Addr, scopeId1, 0);
     }
 
-    if (networkItem2->LocalEndpoint.Address.Type == PH_IPV4_NETWORK_TYPE)
+    if (networkItem2->LocalEndpoint.Address.Type == PH_NETWORK_TYPE_IPV4)
     {
         localAddress2.sin6_family = AF_INET6;
         IN6_SET_ADDR_V4COMPAT(&localAddress2.sin6_addr, &networkItem2->LocalEndpoint.Address.InAddr);
         IN4_UNCANONICALIZE_SCOPE_ID(&networkItem2->LocalEndpoint.Address.InAddr, &localAddress2.sin6_scope_struct);
         //IN6ADDR_SETV4MAPPED(&localAddress2, &networkItem2->LocalEndpoint.Address.InAddr, (SCOPE_ID)SCOPEID_UNSPECIFIED_INIT, 0);
     }
-    else if (networkItem2->LocalEndpoint.Address.Type == PH_IPV6_NETWORK_TYPE)
+    else if (networkItem2->LocalEndpoint.Address.Type == PH_NETWORK_TYPE_IPV6)
     {
-        IN6ADDR_SETSOCKADDR(&localAddress2, &networkItem2->LocalEndpoint.Address.In6Addr, (SCOPE_ID){ .Value = networkItem2->LocalScopeId }, 0);
+        scopeId2.Value = networkItem2->LocalScopeId;
+        IN6ADDR_SETSOCKADDR(&localAddress2, &networkItem2->LocalEndpoint.Address.In6Addr, scopeId2, 0);
     }
 
     sortResult = memcmp(&localAddress1, &localAddress2, sizeof(SOCKADDR_IN6));
@@ -473,32 +476,36 @@ BEGIN_SORT_FUNCTION(RemoteAddress)
 {
     SOCKADDR_IN6 remoteAddress1;
     SOCKADDR_IN6 remoteAddress2;
+    SCOPE_ID scopeId1;
+    SCOPE_ID scopeId2;
 
     memset(&remoteAddress1, 0, sizeof(SOCKADDR_IN6)); // memset for zero padding (dmex)
     memset(&remoteAddress2, 0, sizeof(SOCKADDR_IN6));
 
-    if (networkItem1->RemoteEndpoint.Address.Type == PH_IPV4_NETWORK_TYPE)
+    if (networkItem1->RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV4)
     {
         remoteAddress1.sin6_family = AF_INET6;
         IN6_SET_ADDR_V4COMPAT(&remoteAddress1.sin6_addr, &networkItem1->RemoteEndpoint.Address.InAddr);
         IN4_UNCANONICALIZE_SCOPE_ID(&networkItem1->RemoteEndpoint.Address.InAddr, &remoteAddress1.sin6_scope_struct);
         //IN6ADDR_SETV4MAPPED(&remoteAddress1, &networkItem1->RemoteEndpoint.Address.InAddr, (SCOPE_ID)SCOPEID_UNSPECIFIED_INIT, 0);
     }
-    else if (networkItem1->RemoteEndpoint.Address.Type == PH_IPV6_NETWORK_TYPE)
+    else if (networkItem1->RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV6)
     {
-        IN6ADDR_SETSOCKADDR(&remoteAddress1, &networkItem1->RemoteEndpoint.Address.In6Addr, (SCOPE_ID){ .Value = networkItem1->RemoteScopeId }, 0);
+        scopeId1.Value = networkItem1->RemoteScopeId;
+        IN6ADDR_SETSOCKADDR(&remoteAddress1, &networkItem1->RemoteEndpoint.Address.In6Addr, scopeId1, 0);
     }
 
-    if (networkItem2->RemoteEndpoint.Address.Type == PH_IPV4_NETWORK_TYPE)
+    if (networkItem2->RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV4)
     {
         remoteAddress2.sin6_family = AF_INET6;
         IN6_SET_ADDR_V4COMPAT(&remoteAddress2.sin6_addr, &networkItem2->RemoteEndpoint.Address.InAddr);
         IN4_UNCANONICALIZE_SCOPE_ID(&networkItem2->RemoteEndpoint.Address.InAddr, &remoteAddress2.sin6_scope_struct);
         //IN6ADDR_SETV4MAPPED(&remoteAddress2, &networkItem2->RemoteEndpoint.Address.InAddr, (SCOPE_ID)SCOPEID_UNSPECIFIED_INIT, 0);
     }
-    else if (networkItem2->RemoteEndpoint.Address.Type == PH_IPV6_NETWORK_TYPE)
+    else if (networkItem2->RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV6)
     {
-        IN6ADDR_SETSOCKADDR(&remoteAddress2, &networkItem2->RemoteEndpoint.Address.In6Addr, (SCOPE_ID){ .Value = networkItem2->RemoteScopeId }, 0);
+        scopeId2.Value = networkItem2->RemoteScopeId;
+        IN6ADDR_SETSOCKADDR(&remoteAddress2, &networkItem2->RemoteEndpoint.Address.In6Addr, scopeId2, 0);
     }
 
     sortResult = memcmp(&remoteAddress1, &remoteAddress2, sizeof(SOCKADDR_IN6));
@@ -624,7 +631,9 @@ BOOLEAN NTAPI PhpNetworkTreeNewCallback(
             switch (getCellText->Id)
             {
             case PHNETLC_PROCESS:
-                getCellText->Text = PhGetStringRef(node->ProcessNameText);
+                {
+                    getCellText->Text = PhGetStringRef(node->ProcessNameText);
+                }
                 break;
             case PHNETLC_PID:
                 {
@@ -669,7 +678,7 @@ BOOLEAN NTAPI PhpNetworkTreeNewCallback(
                 break;
             case PHNETLC_PROTOCOL:
                 {
-                    PPH_STRINGREF protocolType;
+                    PCPH_STRINGREF protocolType;
 
                     if (protocolType = PhGetProtocolTypeName(networkItem->ProtocolType))
                     {
@@ -684,9 +693,9 @@ BOOLEAN NTAPI PhpNetworkTreeNewCallback(
                 break;
             case PHNETLC_STATE:
                 {
-                    if (FlagOn(networkItem->ProtocolType, PH_TCP_PROTOCOL_TYPE))
+                    if (FlagOn(networkItem->ProtocolType, PH_PROTOCOL_TYPE_TCP))
                     {
-                        PPH_STRINGREF stateName;
+                        PCPH_STRINGREF stateName;
 
                         if (stateName = PhGetTcpStateName(networkItem->State))
                         {
@@ -698,7 +707,7 @@ BOOLEAN NTAPI PhpNetworkTreeNewCallback(
                             PhInitializeEmptyStringRef(&getCellText->Text);
                         }
                     }
-                    else if (networkItem->ProtocolType == PH_HV_NETWORK_PROTOCOL)
+                    else if (networkItem->ProtocolType == PH_NETWORK_PROTOCOL_HYPERV)
                     {
                         if (networkItem->State)
                         {
@@ -815,7 +824,11 @@ BOOLEAN NTAPI PhpNetworkTreeNewCallback(
         return TRUE;
     case TreeNewSortChanged:
         {
-            TreeNew_GetSort(hwnd, &NetworkTreeListSortColumn, &NetworkTreeListSortOrder);
+            PPH_TREENEW_SORT_CHANGED_EVENT sorting = Parameter1;
+
+            NetworkTreeListSortColumn = sorting->SortColumn;
+            NetworkTreeListSortOrder = sorting->SortOrder;
+
             // Force a rebuild to sort the items.
             TreeNew_NodesStructured(hwnd);
         }
@@ -829,10 +842,6 @@ BOOLEAN NTAPI PhpNetworkTreeNewCallback(
             case 'C':
                 if (GetKeyState(VK_CONTROL) < 0)
                     SendMessage(PhMainWndHandle, WM_COMMAND, ID_NETWORK_COPY, 0);
-                break;
-            case 'A':
-                if (GetKeyState(VK_CONTROL) < 0)
-                    TreeNew_SelectRange(NetworkTreeListHandle, 0, -1);
                 break;
             case VK_RETURN:
                 SendMessage(PhMainWndHandle, WM_COMMAND, ID_NETWORK_GOTOPROCESS, 0);
@@ -923,8 +932,8 @@ VOID PhpUpdateNetworkItemProcessName(
     )
 {
     static PH_INITONCE initOnce = PH_INITONCE_INIT;
-    static PH_STRINGREF processNameUnknown = PH_STRINGREF_INIT(L"Unknown process");
-    static PH_STRINGREF processNameWaiting = PH_STRINGREF_INIT(L"Waiting connections");
+    static CONST PH_STRINGREF processNameUnknown = PH_STRINGREF_INIT(L"Unknown process");
+    static CONST PH_STRINGREF processNameWaiting = PH_STRINGREF_INIT(L"Waiting connections");
     static PPH_STRING cachedNameUnknown = NULL;
     static PPH_STRING cachedNameWaiting = NULL;
 
@@ -1013,7 +1022,7 @@ VOID PhGetSelectedNetworkItems(
             PhAddItemArray(&array, &node->NetworkItem);
     }
 
-    *NumberOfNetworkItems = (ULONG)array.Count;
+    *NumberOfNetworkItems = (ULONG)PhFinalArrayCount(&array);
     *NetworkItems = PhFinalArrayItems(&array);
 }
 
@@ -1033,10 +1042,7 @@ VOID PhSelectAndEnsureVisibleNetworkNode(
     if (!NetworkNode->Node.Visible)
         return;
 
-    TreeNew_SetFocusNode(NetworkTreeListHandle, &NetworkNode->Node);
-    TreeNew_SetMarkNode(NetworkTreeListHandle, &NetworkNode->Node);
-    TreeNew_SelectRange(NetworkTreeListHandle, NetworkNode->Node.Index, NetworkNode->Node.Index);
-    TreeNew_EnsureVisible(NetworkTreeListHandle, &NetworkNode->Node);
+    TreeNew_FocusMarkSelectNode(NetworkTreeListHandle, &NetworkNode->Node);
 }
 
 VOID PhInvalidateAllNetworkNodes(

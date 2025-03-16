@@ -14,26 +14,6 @@
 static PPH_LIST PhpToolbarGraphList = NULL;
 static PPH_HASHTABLE PhpToolbarGraphHashtable = NULL;
 
-typedef struct _TB_GRAPH_CONTEXT
-{
-    LONG GraphDpi;
-} TB_GRAPH_CONTEXT, *PTB_GRAPH_CONTEXT;
-
-ULONG CpuHistoryGraphColor1 = 0;
-ULONG CpuHistoryGraphColor2 = 0;
-ULONG PhysicalHistoryGraphColor1 = 0;
-ULONG CommitHistoryGraph1Color1 = 0;
-ULONG IoHistoryGraphColor1 = 0;
-ULONG IoHistoryGraphColor2 = 0;
-TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(CpuHistoryGraphMessageCallback);
-TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(PhysicalHistoryGraphMessageCallback);
-TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(CommitHistoryGraphMessageCallback);
-TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(IoHistoryGraphMessageCallback);
-TB_GRAPH_CONTEXT CpuHistoryGraphContext = { 0 };
-TB_GRAPH_CONTEXT PhysicalHistoryGraphContext = { 0 };
-TB_GRAPH_CONTEXT CommitHistoryGraphContext = { 0 };
-TB_GRAPH_CONTEXT IoHistoryGraphContext = { 0 };
-
 VOID ToolbarGraphLoadSettings(
     VOID
     )
@@ -53,16 +33,16 @@ VOID ToolbarGraphLoadSettings(
         PH_STRINGREF idPart;
         PH_STRINGREF flagsPart;
         PH_STRINGREF pluginNamePart;
-        LONG64 idInteger;
-        LONG64 flagsInteger;
+        ULONG64 idInteger;
+        ULONG64 flagsInteger;
 
         PhSplitStringRefAtChar(&remaining, L'|', &idPart, &remaining);
         PhSplitStringRefAtChar(&remaining, L'|', &flagsPart, &remaining);
         PhSplitStringRefAtChar(&remaining, L'|', &pluginNamePart, &remaining);
 
-        if (!PhStringToInteger64(&idPart, 10, &idInteger))
+        if (!PhStringToUInt64(&idPart, 10, &idInteger))
             break;
-        if (!PhStringToInteger64(&flagsPart, 10, &flagsInteger))
+        if (!PhStringToUInt64(&flagsPart, 10, &flagsInteger))
             break;
 
         if (flagsInteger)
@@ -143,7 +123,7 @@ VOID ToolbarGraphsInitialize(
         1,
         L"CPU history",
         0,
-        &CpuHistoryGraphContext,
+        NULL,
         CpuHistoryGraphMessageCallback
         );
 
@@ -152,7 +132,7 @@ VOID ToolbarGraphsInitialize(
         2,
         L"Physical memory history",
         0,
-        &PhysicalHistoryGraphContext,
+        NULL,
         PhysicalHistoryGraphMessageCallback
         );
 
@@ -161,7 +141,7 @@ VOID ToolbarGraphsInitialize(
         3,
         L"Commit charge history",
         0,
-        &CommitHistoryGraphContext,
+        NULL,
         CommitHistoryGraphMessageCallback
         );
 
@@ -170,7 +150,7 @@ VOID ToolbarGraphsInitialize(
         4,
         L"I/O history",
         0,
-        &IoHistoryGraphContext,
+        NULL,
         IoHistoryGraphMessageCallback
         );
 }
@@ -179,19 +159,21 @@ VOID ToolbarGraphsInitializeDpi(
     VOID
     )
 {
-    memset(&CpuHistoryGraphContext, 0, sizeof(TB_GRAPH_CONTEXT));
-    memset(&PhysicalHistoryGraphContext, 0, sizeof(TB_GRAPH_CONTEXT));
-    memset(&CommitHistoryGraphContext, 0, sizeof(TB_GRAPH_CONTEXT));
-    memset(&IoHistoryGraphContext, 0, sizeof(TB_GRAPH_CONTEXT));
+    for (ULONG i = 0; i < PhpToolbarGraphList->Count; i++)
+    {
+        PPH_TOOLBAR_GRAPH graph = PhpToolbarGraphList->Items[i];
+
+        graph->GraphDpi = SystemInformer_GetWindowDpi();
+    }
 }
 
 VOID ToolbarRegisterGraph(
-    _In_ struct _PH_PLUGIN *Plugin,
+    _In_ PPH_PLUGIN Plugin,
     _In_ ULONG Id,
     _In_ PWSTR Text,
     _In_ ULONG Flags,
     _In_opt_ PVOID Context,
-    _In_opt_ PTOOLSTATUS_GRAPH_MESSAGE_CALLBACK MessageCallback
+    _In_ PTOOLSTATUS_GRAPH_CALLBACK GraphCallback
     )
 {
     PPH_TOOLBAR_GRAPH graph;
@@ -202,7 +184,7 @@ VOID ToolbarRegisterGraph(
     graph->Text = Text;
     graph->Flags = Flags;
     graph->Context = Context;
-    graph->MessageCallback = MessageCallback;
+    graph->GraphCallback = GraphCallback;
     graph->GraphId = 1000 + Id;
 
     //pluginName = PhGetPluginName(graph->Plugin);
@@ -213,34 +195,38 @@ VOID ToolbarRegisterGraph(
 }
 
 BOOLEAN ToolbarAddGraph(
-    _In_ PPH_TOOLBAR_GRAPH Graph
+    _In_ PPH_TOOLBAR_GRAPH Graph,
+    _In_ ULONG Width,
+    _In_ ULONG Height
     )
 {
     if (!Graph->GraphHandle && RebarHandle && ToolStatusConfig.ToolBarEnabled)
     {
-        UINT rebarHeight = (UINT)SendMessage(RebarHandle, RB_GETROWHEIGHT, REBAR_BAND_ID_TOOLBAR, 0);
+        PH_GRAPH_CREATEPARAMS graphCreateParams;
+
+        memset(&graphCreateParams, 0, sizeof(PH_GRAPH_CREATEPARAMS));
+        graphCreateParams.Size = sizeof(PH_GRAPH_CREATEPARAMS);
+        graphCreateParams.Callback = Graph->GraphCallback;
+        graphCreateParams.Context = Graph;
 
         if (Graph->GraphHandle = CreateWindow(
             PH_GRAPH_CLASSNAME,
             NULL,
             WS_VISIBLE | WS_CHILD | WS_BORDER,
-            0,
-            0,
-            0,
-            0,
-            RebarHandle,
+            0, 0, 0, 0,
+            MainWindowHandle,
             NULL,
             NULL,
-            NULL
+            &graphCreateParams
             ))
         {
-            Graph_SetTooltip(Graph->GraphHandle, TRUE);
             PhInitializeGraphState(&Graph->GraphState);
+            Graph_SetTooltip(Graph->GraphHandle, TRUE);
 
             PhAddItemSimpleHashtable(PhpToolbarGraphHashtable, Graph->GraphHandle, Graph);
 
             if (!RebarBandExists(Graph->GraphId))
-                RebarBandInsert(Graph->GraphId, Graph->GraphHandle, 145, rebarHeight); // height: 85
+                RebarBandInsert(Graph->GraphId, Graph->GraphHandle, Width, Height); // height: 85
 
             if (!IsWindowVisible(Graph->GraphHandle))
                 ShowWindow(Graph->GraphHandle, SW_SHOW);
@@ -276,14 +262,22 @@ VOID ToolbarCreateGraphs(
 {
     ToolbarGraphLoadSettings();
 
-    for (ULONG i = 0; i < PhpToolbarGraphList->Count; i++)
     {
-        PPH_TOOLBAR_GRAPH graph = PhpToolbarGraphList->Items[i];
+        ULONG height;
+        ULONG width;
 
-        if (!FlagOn(graph->Flags, TOOLSTATUS_GRAPH_ENABLED))
-            continue;
+        height = (ULONG)SendMessage(RebarHandle, RB_GETROWHEIGHT, REBAR_BAND_ID_TOOLBAR, 0);
+        width = PhGetDpi(145, SystemInformer_GetWindowDpi());
 
-        ToolbarAddGraph(graph);
+        for (ULONG i = 0; i < PhpToolbarGraphList->Count; i++)
+        {
+            PPH_TOOLBAR_GRAPH graph = PhpToolbarGraphList->Items[i];
+
+            if (!FlagOn(graph->Flags, TOOLSTATUS_GRAPH_ENABLED))
+                continue;
+
+            ToolbarAddGraph(graph, width, height);
+        }
     }
 }
 
@@ -303,10 +297,7 @@ VOID ToolbarUpdateGraphs(
 
         graph->GraphState.Valid = FALSE;
         graph->GraphState.TooltipIndex = ULONG_MAX;
-        Graph_MoveGrid(graph->GraphHandle, 1);
-        Graph_Draw(graph->GraphHandle);
-        Graph_UpdateTooltip(graph->GraphHandle);
-        InvalidateRect(graph->GraphHandle, NULL, FALSE);
+        Graph_Update(graph->GraphHandle);
     }
 }
 
@@ -352,7 +343,11 @@ BOOLEAN ToolbarUpdateGraphsInfo(
             }
         }
 
-        graph->MessageCallback(graph, graph->GraphHandle, &graph->GraphState, Header, graph->Context);
+        if (graph->GraphCallback)
+        {
+            graph->GraphCallback(graph->GraphHandle, Header->code, Header, NULL, graph);
+        }
+
         return TRUE;
     }
 
@@ -366,8 +361,11 @@ VOID ToolbarSetVisibleGraph(
 {
     if (Visible)
     {
+        ULONG height = (ULONG)SendMessage(RebarHandle, RB_GETROWHEIGHT, REBAR_BAND_ID_TOOLBAR, 0);
+        ULONG width = PhGetDpi(145, SystemInformer_GetWindowDpi());
+
         SetFlag(Graph->Flags, TOOLSTATUS_GRAPH_ENABLED);
-        ToolbarAddGraph(Graph);
+        ToolbarAddGraph(Graph, width, height);
     }
     else
     {
@@ -686,43 +684,54 @@ static PPH_STRING PhSipGetMaxIoString(
 // END copied from ProcessHacker/sysinfo.c
 //
 
-TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(CpuHistoryGraphMessageCallback)
+BOOLEAN CpuHistoryGraphMessageCallback(
+    _In_ HWND WindowHandle,
+    _In_ ULONG Message,
+    _In_ PVOID Parameter1,
+    _In_ PVOID Parameter2,
+    _In_ PVOID Context
+    )
 {
-    switch (Header->code)
+    switch (Message)
     {
     case GCN_GETDRAWINFO:
         {
-            PTB_GRAPH_CONTEXT context = (PTB_GRAPH_CONTEXT)Context;
-            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Header;
+            PPH_TOOLBAR_GRAPH graph = (PPH_TOOLBAR_GRAPH)Context;
+            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Parameter1;
             PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
 
-            if (context->GraphDpi == 0)
-                context->GraphDpi = PhGetWindowDpi(GraphHandle);
+            if (graph->GraphDpi == 0)
+            {
+                graph->GraphDpi = SystemInformer_GetWindowDpi();
+                graph->GraphColor1 = PhGetIntegerSetting(L"ColorCpuKernel");
+                graph->GraphColor2 = PhGetIntegerSetting(L"ColorCpuUser");
+            }
 
             drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_LINE_2;
-            PhSiSetColorsGraphDrawInfo(drawInfo, CpuHistoryGraphColor1, CpuHistoryGraphColor2, context->GraphDpi);
+            PhSiSetColorsGraphDrawInfo(drawInfo, graph->GraphColor1, graph->GraphColor2, graph->GraphDpi);
 
             if (!(SystemStatistics.CpuKernelHistory && SystemStatistics.CpuUserHistory))
                 break;
 
-            PhGraphStateGetDrawInfo(GraphState, getDrawInfo, SystemStatistics.CpuUserHistory->Count);
+            PhGraphStateGetDrawInfo(&graph->GraphState, getDrawInfo, SystemStatistics.CpuUserHistory->Count);
 
-            if (!GraphState->Valid)
+            if (!graph->GraphState.Valid)
             {
-                PhCopyCircularBuffer_FLOAT(SystemStatistics.CpuKernelHistory, GraphState->Data1, drawInfo->LineDataCount);
-                PhCopyCircularBuffer_FLOAT(SystemStatistics.CpuUserHistory, GraphState->Data2, drawInfo->LineDataCount);
+                PhCopyCircularBuffer_FLOAT(SystemStatistics.CpuKernelHistory, graph->GraphState.Data1, drawInfo->LineDataCount);
+                PhCopyCircularBuffer_FLOAT(SystemStatistics.CpuUserHistory, graph->GraphState.Data2, drawInfo->LineDataCount);
 
-                GraphState->Valid = TRUE;
+                graph->GraphState.Valid = TRUE;
             }
         }
         break;
     case GCN_GETTOOLTIPTEXT:
         {
-            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Header;
+            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Parameter1;
+            PPH_TOOLBAR_GRAPH graph = (PPH_TOOLBAR_GRAPH)Context;
 
             if (getTooltipText->Index < getTooltipText->TotalCount)
             {
-                if (GraphState->TooltipIndex != getTooltipText->Index)
+                if (graph->GraphState.TooltipIndex != getTooltipText->Index)
                 {
                     FLOAT cpuKernel;
                     FLOAT cpuUser;
@@ -732,22 +741,23 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(CpuHistoryGraphMessageCallback)
                     cpuUser = PhGetItemCircularBuffer_FLOAT(SystemStatistics.CpuUserHistory, getTooltipText->Index);
 
                     // %.2f%%%s\n%s
-                    PhInitFormatF(&format[0], ((DOUBLE)cpuKernel + cpuUser) * 100, 2);
+                    PhInitFormatF(&format[0], (cpuKernel + cpuUser) * 100, 2);
                     PhInitFormatC(&format[1], L'%');
                     PhInitFormatSR(&format[2], PH_AUTO_T(PH_STRING, PhSipGetMaxCpuString(getTooltipText->Index))->sr);
                     PhInitFormatC(&format[3], L'\n');
                     PhInitFormatSR(&format[4], PH_AUTO_T(PH_STRING, PhGetStatisticsTimeString(NULL, getTooltipText->Index))->sr);
 
-                    PhMoveReference(&GraphState->TooltipText, PhFormat(format, RTL_NUMBER_OF(format), 128));
+                    PhMoveReference(&graph->GraphState.TooltipText, PhFormat(format, RTL_NUMBER_OF(format), 128));
                 }
 
-                getTooltipText->Text = PhGetStringRef(GraphState->TooltipText);
+                getTooltipText->Text = PhGetStringRef(graph->GraphState.TooltipText);
             }
         }
         break;
     case GCN_MOUSEEVENT:
         {
-            PPH_GRAPH_MOUSEEVENT mouseEvent = (PPH_GRAPH_MOUSEEVENT)Header;
+            PPH_TOOLBAR_GRAPH graph = (PPH_TOOLBAR_GRAPH)Context;
+            PPH_GRAPH_MOUSEEVENT mouseEvent = (PPH_GRAPH_MOUSEEVENT)Parameter1;
             PPH_PROCESS_RECORD record = NULL;
 
             if (mouseEvent->Message == WM_LBUTTONDBLCLK)
@@ -765,7 +775,7 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(CpuHistoryGraphMessageCallback)
 
                     if (record)
                     {
-                        PhShowProcessRecordDialog(PhMainWndHandle, record);
+                        PhShowProcessRecordDialog(MainWindowHandle, record);
                         PhDereferenceProcessRecord(record);
                     }
                 }
@@ -773,53 +783,65 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(CpuHistoryGraphMessageCallback)
         }
         break;
     }
+
+    return TRUE;
 }
 
-TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(PhysicalHistoryGraphMessageCallback)
+BOOLEAN PhysicalHistoryGraphMessageCallback(
+    _In_ HWND WindowHandle,
+    _In_ ULONG Message,
+    _In_ PVOID Parameter1,
+    _In_ PVOID Parameter2,
+    _In_ PVOID Context
+    )
 {
-    switch (Header->code)
+    switch (Message)
     {
     case GCN_GETDRAWINFO:
         {
-            PTB_GRAPH_CONTEXT context = (PTB_GRAPH_CONTEXT)Context;
-            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Header;
+            PPH_TOOLBAR_GRAPH graph = (PPH_TOOLBAR_GRAPH)Context;
+            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Parameter1;
             PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
 
-            if (context->GraphDpi == 0)
-                context->GraphDpi = PhGetWindowDpi(GraphHandle);
+            if (graph->GraphDpi == 0)
+            {
+                graph->GraphDpi = SystemInformer_GetWindowDpi();
+                graph->GraphColor1 = PhGetIntegerSetting(L"ColorPhysical");
+            }
 
             drawInfo->Flags = PH_GRAPH_USE_GRID_X;
-            PhSiSetColorsGraphDrawInfo(drawInfo, PhysicalHistoryGraphColor1, 0, context->GraphDpi);
+            PhSiSetColorsGraphDrawInfo(drawInfo, graph->GraphColor1, 0, graph->GraphDpi);
 
             if (!SystemStatistics.PhysicalHistory)
                 break;
 
-            PhGraphStateGetDrawInfo(GraphState, getDrawInfo, SystemStatistics.PhysicalHistory->Count);
+            PhGraphStateGetDrawInfo(&graph->GraphState, getDrawInfo, SystemStatistics.PhysicalHistory->Count);
 
-            if (!GraphState->Valid)
+            if (!graph->GraphState.Valid)
             {
                 for (ULONG i = 0; i < drawInfo->LineDataCount; i++)
                 {
-                    GraphState->Data1[i] = (FLOAT)PhGetItemCircularBuffer_ULONG(SystemStatistics.PhysicalHistory, i);
+                    graph->GraphState.Data1[i] = (FLOAT)PhGetItemCircularBuffer_ULONG(SystemStatistics.PhysicalHistory, i);
                 }
 
                 PhDivideSinglesBySingle(
-                    GraphState->Data1,
+                    graph->GraphState.Data1,
                     (FLOAT)PhSystemBasicInformation.NumberOfPhysicalPages,
                     drawInfo->LineDataCount
                     );
 
-                GraphState->Valid = TRUE;
+                graph->GraphState.Valid = TRUE;
             }
         }
         break;
     case GCN_GETTOOLTIPTEXT:
         {
-            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Header;
+            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Parameter1;
+            PPH_TOOLBAR_GRAPH graph = (PPH_TOOLBAR_GRAPH)Context;
 
             if (getTooltipText->Index < getTooltipText->TotalCount)
             {
-                if (GraphState->TooltipIndex != getTooltipText->Index)
+                if (graph->GraphState.TooltipIndex != getTooltipText->Index)
                 {
                     ULONG physicalUsage;
                     PH_FORMAT format[4];
@@ -835,16 +857,16 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(PhysicalHistoryGraphMessageCallback)
                     PhInitFormatC(&format[2], L'\n');
                     PhInitFormatSR(&format[3], PH_AUTO_T(PH_STRING, PhGetStatisticsTimeString(NULL, getTooltipText->Index))->sr);
 
-                    PhMoveReference(&GraphState->TooltipText, PhFormat(format, RTL_NUMBER_OF(format), 128));
+                    PhMoveReference(&graph->GraphState.TooltipText, PhFormat(format, RTL_NUMBER_OF(format), 128));
                 }
 
-                getTooltipText->Text = PhGetStringRef(GraphState->TooltipText);
+                getTooltipText->Text = PhGetStringRef(graph->GraphState.TooltipText);
             }
         }
         break;
     case GCN_MOUSEEVENT:
         {
-            PPH_GRAPH_MOUSEEVENT mouseEvent = (PPH_GRAPH_MOUSEEVENT)Header;
+            PPH_GRAPH_MOUSEEVENT mouseEvent = (PPH_GRAPH_MOUSEEVENT)Parameter1;
 
             if (mouseEvent->Message == WM_LBUTTONDBLCLK)
             {
@@ -856,53 +878,65 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(PhysicalHistoryGraphMessageCallback)
         }
         break;
     }
+
+    return TRUE;
 }
 
-TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(CommitHistoryGraphMessageCallback)
+BOOLEAN CommitHistoryGraphMessageCallback(
+    _In_ HWND WindowHandle,
+    _In_ ULONG Message,
+    _In_ PVOID Parameter1,
+    _In_ PVOID Parameter2,
+    _In_ PVOID Context
+    )
 {
-    switch (Header->code)
+    switch (Message)
     {
     case GCN_GETDRAWINFO:
         {
-            PTB_GRAPH_CONTEXT context = (PTB_GRAPH_CONTEXT)Context;
-            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Header;
+            PPH_TOOLBAR_GRAPH graph = (PPH_TOOLBAR_GRAPH)Context;
+            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Parameter1;
             PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
 
-            if (context->GraphDpi == 0)
-                context->GraphDpi = PhGetWindowDpi(GraphHandle);
+            if (graph->GraphDpi == 0)
+            {
+                graph->GraphDpi = SystemInformer_GetWindowDpi();
+                graph->GraphColor1 = PhGetIntegerSetting(L"ColorPrivate");
+            }
 
             drawInfo->Flags = PH_GRAPH_USE_GRID_X;
-            PhSiSetColorsGraphDrawInfo(drawInfo, CommitHistoryGraph1Color1, 0, context->GraphDpi);
+            PhSiSetColorsGraphDrawInfo(drawInfo, graph->GraphColor1, 0, graph->GraphDpi);
 
             if (!(SystemStatistics.CommitHistory && SystemStatistics.Performance))
                 break;
 
-            PhGraphStateGetDrawInfo(GraphState, getDrawInfo, SystemStatistics.CommitHistory->Count);
+            PhGraphStateGetDrawInfo(&graph->GraphState, getDrawInfo, SystemStatistics.CommitHistory->Count);
 
-            if (!GraphState->Valid)
+            if (!graph->GraphState.Valid)
             {
                 for (ULONG i = 0; i < drawInfo->LineDataCount; i++)
                 {
-                    GraphState->Data1[i] = (FLOAT)PhGetItemCircularBuffer_ULONG(SystemStatistics.CommitHistory, i);
+                    graph->GraphState.Data1[i] = (FLOAT)PhGetItemCircularBuffer_ULONG(SystemStatistics.CommitHistory, i);
                 }
 
                 PhDivideSinglesBySingle(
-                    GraphState->Data1,
+                    graph->GraphState.Data1,
                     (FLOAT)SystemStatistics.Performance->CommitLimit,
                     drawInfo->LineDataCount
                     );
 
-                GraphState->Valid = TRUE;
+                graph->GraphState.Valid = TRUE;
             }
         }
         break;
     case GCN_GETTOOLTIPTEXT:
         {
-            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Header;
+            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Parameter1;
+            PPH_TOOLBAR_GRAPH graph = (PPH_TOOLBAR_GRAPH)Context;
 
             if (getTooltipText->Index < getTooltipText->TotalCount)
             {
-                if (GraphState->TooltipIndex != getTooltipText->Index)
+                if (graph->GraphState.TooltipIndex != getTooltipText->Index)
                 {
                     ULONG commitUsage;
                     PH_FORMAT format[4];
@@ -918,16 +952,16 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(CommitHistoryGraphMessageCallback)
                     PhInitFormatC(&format[2], L'\n');
                     PhInitFormatSR(&format[3], PH_AUTO_T(PH_STRING, PhGetStatisticsTimeString(NULL, getTooltipText->Index))->sr);
 
-                    PhMoveReference(&GraphState->TooltipText, PhFormat(format, RTL_NUMBER_OF(format), 128));
+                    PhMoveReference(&graph->GraphState.TooltipText, PhFormat(format, RTL_NUMBER_OF(format), 128));
                 }
 
-                getTooltipText->Text = PhGetStringRef(GraphState->TooltipText);
+                getTooltipText->Text = PhGetStringRef(graph->GraphState.TooltipText);
             }
         }
         break;
     case GCN_MOUSEEVENT:
         {
-            PPH_GRAPH_MOUSEEVENT mouseEvent = (PPH_GRAPH_MOUSEEVENT)Header;
+            PPH_GRAPH_MOUSEEVENT mouseEvent = (PPH_GRAPH_MOUSEEVENT)Parameter1;
 
             if (mouseEvent->Message == WM_LBUTTONDBLCLK)
             {
@@ -939,59 +973,72 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(CommitHistoryGraphMessageCallback)
         }
         break;
     }
+
+    return TRUE;
 }
 
-TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(IoHistoryGraphMessageCallback)
+BOOLEAN IoHistoryGraphMessageCallback(
+    _In_ HWND WindowHandle,
+    _In_ ULONG Message,
+    _In_ PVOID Parameter1,
+    _In_ PVOID Parameter2,
+    _In_ PVOID Context
+    )
 {
-    switch (Header->code)
+    switch (Message)
     {
     case GCN_GETDRAWINFO:
         {
-            PTB_GRAPH_CONTEXT context = (PTB_GRAPH_CONTEXT)Context;
-            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Header;
+            PPH_TOOLBAR_GRAPH graph = (PPH_TOOLBAR_GRAPH)Context;
+            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Parameter1;
             PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
 
-            if (context->GraphDpi == 0)
-                context->GraphDpi = PhGetWindowDpi(GraphHandle);
+            if (graph->GraphDpi == 0)
+            {
+                graph->GraphDpi = SystemInformer_GetWindowDpi();
+                graph->GraphColor1 = PhGetIntegerSetting(L"ColorIoReadOther");
+                graph->GraphColor2 = PhGetIntegerSetting(L"ColorIoWrite");
+            }
 
             drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_LINE_2;
-            PhSiSetColorsGraphDrawInfo(drawInfo, IoHistoryGraphColor1, IoHistoryGraphColor2, context->GraphDpi);
+            PhSiSetColorsGraphDrawInfo(drawInfo, graph->GraphColor1, graph->GraphColor2, graph->GraphDpi);
 
             if (!(SystemStatistics.IoReadHistory && SystemStatistics.IoOtherHistory && SystemStatistics.IoWriteHistory))
                 break;
 
-            PhGraphStateGetDrawInfo(GraphState, getDrawInfo, SystemStatistics.IoReadHistory->Count);
+            PhGraphStateGetDrawInfo(&graph->GraphState, getDrawInfo, SystemStatistics.IoReadHistory->Count);
 
-            if (!GraphState->Valid)
+            if (!graph->GraphState.Valid)
             {
                 FLOAT max = 1024 * 1024; // minimum scaling of 1 MB.
 
                 for (ULONG i = 0; i < drawInfo->LineDataCount; i++)
                 {
-                    GraphState->Data1[i] =
+                    graph->GraphState.Data1[i] =
                         (FLOAT)PhGetItemCircularBuffer_ULONG64(SystemStatistics.IoReadHistory, i) +
                         (FLOAT)PhGetItemCircularBuffer_ULONG64(SystemStatistics.IoOtherHistory, i);
-                    GraphState->Data2[i] =
+                    graph->GraphState.Data2[i] =
                         (FLOAT)PhGetItemCircularBuffer_ULONG64(SystemStatistics.IoWriteHistory, i);
 
-                    if (max < GraphState->Data1[i] + GraphState->Data2[i])
-                        max = GraphState->Data1[i] + GraphState->Data2[i];
+                    if (max < graph->GraphState.Data1[i] + graph->GraphState.Data2[i])
+                        max = graph->GraphState.Data1[i] + graph->GraphState.Data2[i];
                 }
 
-                PhDivideSinglesBySingle(GraphState->Data1, max, drawInfo->LineDataCount);
-                PhDivideSinglesBySingle(GraphState->Data2, max, drawInfo->LineDataCount);
+                PhDivideSinglesBySingle(graph->GraphState.Data1, max, drawInfo->LineDataCount);
+                PhDivideSinglesBySingle(graph->GraphState.Data2, max, drawInfo->LineDataCount);
 
-                GraphState->Valid = TRUE;
+                graph->GraphState.Valid = TRUE;
             }
         }
         break;
     case GCN_GETTOOLTIPTEXT:
         {
-            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Header;
+            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Parameter1;
+            PPH_TOOLBAR_GRAPH graph = (PPH_TOOLBAR_GRAPH)Context;
 
             if (getTooltipText->Index < getTooltipText->TotalCount)
             {
-                if (GraphState->TooltipIndex != getTooltipText->Index)
+                if (graph->GraphState.TooltipIndex != getTooltipText->Index)
                 {
                     ULONG64 ioRead;
                     ULONG64 ioWrite;
@@ -1016,16 +1063,16 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(IoHistoryGraphMessageCallback)
                     PhInitFormatC(&format[7], L'\n');
                     PhInitFormatSR(&format[8], PH_AUTO_T(PH_STRING, PhGetStatisticsTimeString(NULL, getTooltipText->Index))->sr);
 
-                    PhMoveReference(&GraphState->TooltipText, PhFormat(format, RTL_NUMBER_OF(format), 128));
+                    PhMoveReference(&graph->GraphState.TooltipText, PhFormat(format, RTL_NUMBER_OF(format), 128));
                 }
 
-                getTooltipText->Text = PhGetStringRef(GraphState->TooltipText);
+                getTooltipText->Text = PhGetStringRef(graph->GraphState.TooltipText);
             }
         }
         break;
     case GCN_MOUSEEVENT:
         {
-            PPH_GRAPH_MOUSEEVENT mouseEvent = (PPH_GRAPH_MOUSEEVENT)Header;
+            PPH_GRAPH_MOUSEEVENT mouseEvent = (PPH_GRAPH_MOUSEEVENT)Parameter1;
             PPH_PROCESS_RECORD record = NULL;
 
             if (mouseEvent->Message == WM_LBUTTONDBLCLK)
@@ -1043,7 +1090,7 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(IoHistoryGraphMessageCallback)
 
                     if (record)
                     {
-                        PhShowProcessRecordDialog(PhMainWndHandle, record);
+                        PhShowProcessRecordDialog(MainWindowHandle, record);
                         PhDereferenceProcessRecord(record);
                     }
                 }
@@ -1051,4 +1098,6 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(IoHistoryGraphMessageCallback)
         }
         break;
     }
+
+    return TRUE;
 }

@@ -90,7 +90,7 @@ NTSTATUS NetworkPingThreadStart(
     if (icmpEchoBuffer->Length != icmpEchoBufferLength)
         goto CleanupExit;
 
-    if (context->RemoteEndpoint.Address.Type == PH_IPV6_NETWORK_TYPE)
+    if (context->RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV6)
     {
         SOCKADDR_IN6 icmp6LocalAddr = { 0 };
         SOCKADDR_IN6 icmp6RemoteAddr = { 0 };
@@ -319,9 +319,9 @@ PPH_STRING NetworkPingLabelYFunction(
     _In_ FLOAT Parameter
     )
 {
-    DOUBLE value;
+    FLOAT value;
 
-    value = (DOUBLE)(Parameter);
+    value = (FLOAT)(Parameter);
 
     if (value != 0)
     {
@@ -386,11 +386,11 @@ INT_PTR CALLBACK NetworkPingWndProc(
                 WS_VISIBLE | WS_CHILD | WS_BORDER,
                 0,
                 0,
-                3,
-                3,
+                0,
+                0,
                 hwndDlg,
                 NULL,
-                NULL,
+                PluginInstance->DllBase,
                 NULL
                 );
             Graph_SetTooltip(context->PingGraphHandle, TRUE);
@@ -720,7 +720,7 @@ NTSTATUS NetworkPingDialogThreadStart(
         {
             if (message.wParam == VK_F5)
             {
-                ProcessHacker_Refresh();  // forward key messages (dmex)
+                SystemInformer_Refresh();  // forward key messages (dmex)
             }
         }
 
@@ -749,7 +749,7 @@ VOID ShowPingWindow(
         sizeof(NetworkItem->RemoteEndpoint)
         );
 
-    if (NetworkItem->RemoteEndpoint.Address.Type == PH_IPV4_NETWORK_TYPE)
+    if (NetworkItem->RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV4)
     {
         ULONG remoteAddressStringLength = RTL_NUMBER_OF(context->RemoteAddressString);
 
@@ -799,7 +799,7 @@ VOID ShowPingWindowFromAddress(
         sizeof(RemoteEndpoint)
         );
 
-    if (RemoteEndpoint.Address.Type == PH_IPV4_NETWORK_TYPE)
+    if (RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV4)
     {
         ULONG remoteAddressStringLength = RTL_NUMBER_OF(context->RemoteAddressString);
 

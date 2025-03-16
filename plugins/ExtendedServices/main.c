@@ -30,52 +30,54 @@ VOID NTAPI MenuItemCallback(
     {
     case ID_SERVICE_GOTOSERVICE:
         {
-            ProcessHacker_SelectTabPage(1);
-            ProcessHacker_SelectServiceItem((PPH_SERVICE_ITEM)menuItem->Context);
+            SystemInformer_SelectTabPage(1);
+            SystemInformer_SelectServiceItem((PPH_SERVICE_ITEM)menuItem->Context);
         }
         break;
     case ID_SERVICE_START:
         {
-            PhUiStartService(menuItem->OwnerWindow, (PPH_SERVICE_ITEM)menuItem->Context);
+            PhUiStartServices(menuItem->OwnerWindow, (PPH_SERVICE_ITEM*)&menuItem->Context, 1);
         }
         break;
     case ID_SERVICE_CONTINUE:
         {
-            PhUiContinueService(menuItem->OwnerWindow, (PPH_SERVICE_ITEM)menuItem->Context);
+            PhUiContinueServices(menuItem->OwnerWindow, (PPH_SERVICE_ITEM*)&menuItem->Context, 1);
         }
         break;
     case ID_SERVICE_PAUSE:
         {
-            PhUiPauseService(menuItem->OwnerWindow, (PPH_SERVICE_ITEM)menuItem->Context);
+            PhUiPauseServices(menuItem->OwnerWindow, (PPH_SERVICE_ITEM*)&menuItem->Context, 1);
         }
         break;
     case ID_SERVICE_STOP:
         {
-            PhUiStopService(menuItem->OwnerWindow, (PPH_SERVICE_ITEM)menuItem->Context);
+            PhUiStopServices(menuItem->OwnerWindow, (PPH_SERVICE_ITEM*)&menuItem->Context, 1);
         }
         break;
     case ID_SERVICE_RESTART:
         {
-            PPH_SERVICE_ITEM serviceItem = menuItem->Context;
-            SC_HANDLE serviceHandle;
-            NTSTATUS status;
+            PhUiRestartServices(menuItem->OwnerWindow, (PPH_SERVICE_ITEM*)&menuItem->Context, 1);
 
-            status = PhOpenService(&serviceHandle, SERVICE_QUERY_STATUS, PhGetString(serviceItem->Name));
-
-            if (NT_SUCCESS(status))
-            {
-                EsRestartServiceWithProgress(menuItem->OwnerWindow, serviceItem, serviceHandle);
-                PhCloseServiceHandle(serviceHandle);
-            }
-            else
-            {
-                PhShowStatus(
-                    menuItem->OwnerWindow,
-                    PhaFormatString(L"Unable to restart %s", serviceItem->Name->Buffer)->Buffer,
-                    status,
-                    0
-                    );
-            }
+            //PPH_SERVICE_ITEM serviceItem = menuItem->Context;
+            //SC_HANDLE serviceHandle;
+            //NTSTATUS status;
+            //
+            //status = PhOpenService(&serviceHandle, SERVICE_QUERY_STATUS, PhGetString(serviceItem->Name));
+            //
+            //if (NT_SUCCESS(status))
+            //{
+            //    EsRestartServiceWithProgress(menuItem->OwnerWindow, serviceItem, serviceHandle);
+            //    PhCloseServiceHandle(serviceHandle);
+            //}
+            //else
+            //{
+            //    PhShowStatus(
+            //        menuItem->OwnerWindow,
+            //        PhaFormatString(L"Unable to restart %s", serviceItem->Name->Buffer)->Buffer,
+            //        status,
+            //        0
+            //        );
+            //}
         }
         break;
     }
@@ -578,7 +580,6 @@ LOGICAL DllMain(
                 return FALSE;
 
             info->DisplayName = L"Extended Services";
-            info->Author = L"dmex, wj32";
             info->Description = L"Extends service management capabilities.";
 
             PhRegisterCallback(

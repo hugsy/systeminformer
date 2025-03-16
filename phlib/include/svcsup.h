@@ -62,7 +62,7 @@ NTAPI
 PhOpenService(
     _Out_ PSC_HANDLE ServiceHandle,
     _In_ ACCESS_MASK DesiredAccess,
-    _In_ PWSTR ServiceName
+    _In_ PCWSTR ServiceName
     );
 
 PHLIBAPI
@@ -179,7 +179,7 @@ NTSTATUS
 NTAPI
 PhQueryServiceStatus(
     _In_ SC_HANDLE ServiceHandle,
-    _Inout_ LPSERVICE_STATUS_PROCESS ServiceStatus
+    _Out_ LPSERVICE_STATUS_PROCESS ServiceStatus
     );
 
 PHLIBAPI
@@ -260,6 +260,7 @@ PhSetServiceDelayedAutoStart(
     _In_ BOOLEAN DelayedAutoStart
     );
 
+_Success_(return)
 PHLIBAPI
 BOOLEAN
 NTAPI
@@ -269,14 +270,14 @@ PhGetServiceTriggerInfo(
     );
 
 PHLIBAPI
-PPH_STRINGREF
+PCPH_STRINGREF
 NTAPI
 PhGetServiceStateString(
     _In_ ULONG ServiceState
     );
 
 PHLIBAPI
-PPH_STRINGREF
+PCPH_STRINGREF
 NTAPI
 PhGetServiceTypeString(
     _In_ ULONG ServiceType
@@ -290,7 +291,7 @@ PhGetServiceTypeInteger(
     );
 
 PHLIBAPI
-PPH_STRINGREF
+PCPH_STRINGREF
 NTAPI
 PhGetServiceStartTypeString(
     _In_ ULONG ServiceStartType
@@ -304,7 +305,7 @@ PhGetServiceStartTypeInteger(
     );
 
 PHLIBAPI
-PPH_STRINGREF
+PCPH_STRINGREF
 NTAPI
 PhGetServiceErrorControlString(
     _In_ ULONG ServiceErrorControl
@@ -330,7 +331,7 @@ PPH_STRING
 NTAPI
 PhGetServiceNameForModuleReference(
     _In_ HANDLE ProcessId,
-    _In_ PWSTR ModuleName
+    _In_ PCWSTR ModuleName
     );
 
 PHLIBAPI
@@ -338,7 +339,7 @@ NTSTATUS
 NTAPI
 PhGetThreadServiceTag(
     _In_ HANDLE ThreadHandle,
-    _In_opt_ HANDLE ProcessHandle,
+    _In_ HANDLE ProcessHandle,
     _Out_ PVOID *ServiceTag
     );
 
@@ -361,7 +362,7 @@ PPH_STRING
 NTAPI
 PhGetServiceConfigFileName(
     _In_ ULONG ServiceType,
-    _In_ PWSTR ServicePathName,
+    _In_ PCWSTR ServicePathName,
     _In_ PPH_STRINGREF ServiceName
     );
 
@@ -409,6 +410,15 @@ PPH_STRING
 NTAPI
 PhGetServicePackageFullName(
     _In_ PPH_STRINGREF ServiceName
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
+PhWaitForServiceStatus(
+    _In_ SC_HANDLE ServiceHandle,
+    _In_ ULONG WaitForState,
+    _In_ ULONG Timeout
     );
 
 FORCEINLINE

@@ -45,7 +45,7 @@ typedef struct _PH_PROCESS_MINIDUMP_CONTEXT
         BOOLEAN Flags;
         struct
         {
-            BOOLEAN IsWow64 : 1;
+            BOOLEAN IsWow64Process : 1;
             BOOLEAN IsProcessSnapshot : 1;
             BOOLEAN Stop : 1;
             BOOLEAN Succeeded : 1;
@@ -226,7 +226,7 @@ VOID PhUiCreateDumpFileProcess(
 
 #ifdef _WIN64
     PhGetProcessIsWow64(context->ProcessHandle, &isWow64);
-    context->IsWow64 = !!isWow64;
+    context->IsWow64Process = !!isWow64;
 #endif
 
     status = PhCreateFileWin32(
@@ -428,7 +428,7 @@ NTSTATUS PhpProcessMiniDumpThreadStart(
     callbackInfo.CallbackParam = context;
 
 #ifdef _WIN64
-    if (context->IsWow64)
+    if (context->IsWow64Process)
     {
         if (PhUiConnectToPhSvcEx(NULL, Wow64PhSvcMode, FALSE))
         {
@@ -494,8 +494,7 @@ NTSTATUS PhpProcessMiniDumpThreadStart(
 
             if (NT_SUCCESS(PhCreateProcessSnapshot(
                 &snapshotHandle,
-                context->ProcessHandle,
-                context->ProcessId
+                context->ProcessHandle
                 )))
             {
                 processSnapshotHandle = snapshotHandle;
@@ -504,7 +503,7 @@ NTSTATUS PhpProcessMiniDumpThreadStart(
         }
     }
 
-    if (context->EnableProcessSnapshot && context->IsProcessSnapshot)
+    if (context->EnableProcessSnapshot && context->IsProcessSnapshot && processSnapshotHandle)
         processHandle = processSnapshotHandle;
     else
         processHandle = context->ProcessHandle;
@@ -721,7 +720,7 @@ LRESULT CALLBACK PhpProcessMiniDumpTaskDialogSubclassProc(
             config.pszMainInstruction = L"Unable to create the minidump.";
             config.pszContent = PhGetStringOrDefault(context->ErrorMessage, L"Unknown error.");
 
-            SendMessage(context->WindowHandle, TDM_NAVIGATE_PAGE, 0, (LPARAM)&config);
+            PhTaskDialogNavigatePage(context->WindowHandle, &config);
         }
         break;
     case WM_PH_MINIDUMP_COMPLETED:
@@ -744,16 +743,16 @@ HRESULT CALLBACK PhpProcessMiniDumpTaskDialogCallbackProc(
 
     switch (uMsg)
     {
-    case TDN_CREATED:
+    case TDN_DIALOG_CONSTRUCTED:
         {
             context->WindowHandle = hwndDlg;
 
             PhSetApplicationWindowIcon(hwndDlg);
             PhCenterWindow(hwndDlg, context->ParentWindowHandle);
 
-            context->DefaultTaskDialogWindowProc = (WNDPROC)GetWindowLongPtr(hwndDlg, GWLP_WNDPROC);
+            context->DefaultTaskDialogWindowProc = PhGetWindowProcedure(hwndDlg);
             PhSetWindowContext(hwndDlg, 0xF, context);
-            SetWindowLongPtr(hwndDlg, GWLP_WNDPROC, (LONG_PTR)PhpProcessMiniDumpTaskDialogSubclassProc);
+            PhSetWindowProcedure(hwndDlg, PhpProcessMiniDumpTaskDialogSubclassProc);
 
             SendMessage(hwndDlg, TDM_SET_MARQUEE_PROGRESS_BAR, TRUE, 0);
             SendMessage(hwndDlg, TDM_SET_PROGRESS_BAR_MARQUEE, TRUE, 1);
@@ -814,7 +813,7 @@ NTSTATUS PhpProcessMiniDumpTaskDialogThread(
     config.pszContent = L"Creating the minidump file...";
     config.cxWidth = 200;
 
-    TaskDialogIndirect(&config, NULL, NULL, NULL);
+    PhShowTaskDialog(&config, NULL, NULL, NULL);
 
     PhDereferenceObject(context);
 
@@ -834,7 +833,7 @@ INT_PTR CALLBACK PhpProcDumpDlgProc(
     _In_ LPARAM lParam
     )
 {
-    static PH_MINIDUMP_OPTION_ENTRY options[] =
+    static CONST PH_MINIDUMP_OPTION_ENTRY options[] =
     {
         { IDC_MINIDUMP_NORMAL, MiniDumpNormal },
         { IDC_MINIDUMP_WITH_DATA_SEGS, MiniDumpWithDataSegs },

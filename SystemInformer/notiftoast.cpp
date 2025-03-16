@@ -53,9 +53,7 @@ namespace PH
         _In_ const char* Function
         )
     {
-        *FunctionPointer = static_cast<T>(PhGetModuleProcAddress(
-            const_cast<PWSTR>(Module),
-            const_cast<PSTR>(Function)));
+        *FunctionPointer = static_cast<T>(PhGetModuleProcAddress(Module, Function));
         return (*FunctionPointer != nullptr);
     }
 
@@ -190,7 +188,6 @@ namespace PH
         ComPtr<IToastNotification> m_Toast{ nullptr };
 
     };
-
 }
 
 _Must_inspect_result_
@@ -524,8 +521,8 @@ HRESULT PhShowToast(
     PH_STRINGREF applicationIdStringRef;
     PH_STRINGREF toastXmlStringRef;
 
-    PhInitializeStringRefLongHint(&applicationIdStringRef, (PWSTR)ApplicationId);
-    PhInitializeStringRefLongHint(&toastXmlStringRef, (PWSTR)ToastXml);
+    PhInitializeStringRefLongHint(&applicationIdStringRef, ApplicationId);
+    PhInitializeStringRefLongHint(&toastXmlStringRef, ToastXml);
 
     return PhShowToastStringRef(&applicationIdStringRef,
                                 &toastXmlStringRef,

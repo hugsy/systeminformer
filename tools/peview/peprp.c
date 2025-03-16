@@ -120,7 +120,7 @@ VOID PvPeProperties(
                 PhLoadModuleSymbolProvider(
                     PvSymbolProvider,
                     fileName,
-                    (ULONG64)PvMappedImage.NtHeaders32->OptionalHeader.ImageBase,
+                    PTR_ADD_OFFSET(PvMappedImage.NtHeaders32->OptionalHeader.ImageBase, 0),
                     PvMappedImage.NtHeaders32->OptionalHeader.SizeOfImage
                     );
             }
@@ -129,7 +129,7 @@ VOID PvPeProperties(
                 PhLoadModuleSymbolProvider(
                     PvSymbolProvider,
                     fileName,
-                    (ULONG64)PvMappedImage.NtHeaders->OptionalHeader.ImageBase,
+                    PTR_ADD_OFFSET(PvMappedImage.NtHeaders->OptionalHeader.ImageBase, 0),
                     PvMappedImage.NtHeaders->OptionalHeader.SizeOfImage
                     );
             }
@@ -994,7 +994,7 @@ VOID PvpSetPeImageBaseAddress(
     else
         imagebase = PvMappedImage.NtHeaders->OptionalHeader.ImageBase;
 
-    string = PhFormatString(L"0x%I64x", imagebase);
+    string = PhFormatString(L"0x%llx", imagebase);
     PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_IMAGEBASE, 1, string->Buffer);
     PhDereferenceObject(string);
 }
@@ -1020,27 +1020,27 @@ VOID PvpSetPeImageSize(
 
     if (PvMappedImage.ViewSize != lastRawDataOffset)
     {
-        //BOOLEAN success = FALSE;
-        //PIMAGE_DATA_DIRECTORY dataDirectory;
-        //
-        //if (NT_SUCCESS(PhGetMappedImageDataDirectory(
-        //    &PvMappedImage,
-        //    IMAGE_DIRECTORY_ENTRY_SECURITY,
-        //    &dataDirectory
-        //    )))
-        //{
-        //    if ((lastRawDataOffset + dataDirectory->Size == PvMappedImage.Size) &&
-        //        (lastRawDataOffset == dataDirectory->VirtualAddress))
-        //    {
-        //        success = TRUE;
-        //    }
-        //}
-        //
-        //if (success)
-        //{
-        //    string = PhFormatSize(PvMappedImage.Size, ULONG_MAX);
-        //}
-        //else
+        BOOLEAN success = FALSE;
+        PIMAGE_DATA_DIRECTORY dataDirectory;
+        
+        if (NT_SUCCESS(PhGetMappedImageDataDirectory(
+            &PvMappedImage,
+            IMAGE_DIRECTORY_ENTRY_SECURITY,
+            &dataDirectory
+            )))
+        {
+            if ((lastRawDataOffset + dataDirectory->Size == PvMappedImage.ViewSize) &&
+                (lastRawDataOffset == dataDirectory->VirtualAddress))
+            {
+                success = TRUE;
+            }
+        }
+        
+        if (success)
+        {
+            string = PhFormatSize(PvMappedImage.ViewSize, ULONG_MAX);
+        }
+        else
         {
             WCHAR pointer[PH_PTR_STR_LEN_1];
 
@@ -1168,7 +1168,7 @@ static NTSTATUS PvpEntryPointImageThreadStart(
         {
             symbol = PhGetSymbolFromAddress(
                 PvSymbolProvider,
-                (ULONG64)PTR_ADD_OFFSET(PvMappedImage.NtHeaders32->OptionalHeader.ImageBase, addressOfEntryPoint),
+                PTR_ADD_OFFSET(PvMappedImage.NtHeaders32->OptionalHeader.ImageBase, addressOfEntryPoint),
                 &symbolResolveLevel,
                 &fileName,
                 &symbolName,
@@ -1179,7 +1179,7 @@ static NTSTATUS PvpEntryPointImageThreadStart(
         {
             symbol = PhGetSymbolFromAddress(
                 PvSymbolProvider,
-                (ULONG64)PTR_ADD_OFFSET(PvMappedImage.NtHeaders->OptionalHeader.ImageBase, addressOfEntryPoint),
+                PTR_ADD_OFFSET(PvMappedImage.NtHeaders->OptionalHeader.ImageBase, addressOfEntryPoint),
                 &symbolResolveLevel,
                 &fileName,
                 &symbolName,
@@ -1249,7 +1249,7 @@ VOID PvpSetPeImageSpareHeaderBytes(
     {
         ULONG nativeHeadersLength = PtrToUlong(PTR_SUB_OFFSET(PvMappedImage.NtHeaders32, PvMappedImage.ViewBase));
         ULONG optionalHeadersLength = UFIELD_OFFSET(IMAGE_NT_HEADERS32, OptionalHeader) + PvMappedImage.NtHeaders32->FileHeader.SizeOfOptionalHeader;
-        ULONG sectionsLength = PvMappedImage.NtHeaders32->FileHeader.NumberOfSections * sizeof(IMAGE_SECTION_HEADER);
+        ULONG sectionsLength = PvMappedImage.NtHeaders32->FileHeader.NumberOfSections * IMAGE_SIZEOF_SECTION_HEADER;
         ULONG totalLength = nativeHeadersLength + optionalHeadersLength + sectionsLength;
         ULONG spareLength = PtrToUlong(PTR_SUB_OFFSET(PvMappedImage.NtHeaders32->OptionalHeader.SizeOfHeaders, totalLength));
 
@@ -1259,7 +1259,7 @@ VOID PvpSetPeImageSpareHeaderBytes(
     {
         ULONG nativeHeadersLength = PtrToUlong(PTR_SUB_OFFSET(PvMappedImage.NtHeaders, PvMappedImage.ViewBase));
         ULONG optionalHeadersLength = UFIELD_OFFSET(IMAGE_NT_HEADERS64, OptionalHeader) + PvMappedImage.NtHeaders->FileHeader.SizeOfOptionalHeader;
-        ULONG sectionsLength = PvMappedImage.NtHeaders->FileHeader.NumberOfSections * sizeof(IMAGE_SECTION_HEADER);
+        ULONG sectionsLength = PvMappedImage.NtHeaders->FileHeader.NumberOfSections * IMAGE_SIZEOF_SECTION_HEADER;
         ULONG totalLength = nativeHeadersLength + optionalHeadersLength + sectionsLength;
         ULONG spareLength = PtrToUlong(PTR_SUB_OFFSET(PvMappedImage.NtHeaders->OptionalHeader.SizeOfHeaders, totalLength));
 
@@ -1956,6 +1956,16 @@ NTSTATUS PhpOpenFileSecurity(
     return status;
 }
 
+NTSTATUS PhpCloseFileSecurity(
+    _In_opt_ HANDLE Handle,
+    _In_opt_ BOOLEAN Release,
+    _In_opt_ PVOID Context
+    )
+{
+    if (Handle) NtClose(Handle);
+    return STATUS_SUCCESS;
+}
+
 static COLORREF NTAPI PvpPeCharacteristicsColorFunction(
     _In_ INT Index,
     _In_ PVOID Param,
@@ -2246,7 +2256,7 @@ INT_PTR CALLBACK PvPeGeneralDlgProc(
             SetBkMode((HDC)wParam, TRANSPARENT);
             SetTextColor((HDC)wParam, RGB(0, 0, 0));
             SetDCBrushColor((HDC)wParam, RGB(255, 255, 255));
-            return (INT_PTR)GetStockBrush(DC_BRUSH);
+            return (INT_PTR)PhGetStockBrush(DC_BRUSH);
         }
         break;
     }

@@ -132,31 +132,20 @@ PVOID PhGetWmiUtilsDllBase(
             PhDereferenceObject(fileName);
         }
 
+        {
+            typedef void (WINAPI* _SetOaNoCache)(void);
+            _SetOaNoCache SetOaNoCache_I;
+
+            if (SetOaNoCache_I = PhGetModuleProcAddress(L"oleaut32.dll", "SetOaNoCache"))
+            {
+                SetOaNoCache_I();
+            }
+        }
+
         PhEndInitOnce(&initOnce);
     }
 
     return imageBaseAddress;
-}
-
-PPH_STRING PhGetWbemClassObjectString(
-    _In_ IWbemClassObject* WbemClassObject,
-    _In_ PCWSTR Name
-    )
-{
-    PPH_STRING string = NULL;
-    VARIANT variant = { 0 };
-
-    if (SUCCEEDED(IWbemClassObject_Get(WbemClassObject, Name, 0, &variant, NULL, 0)))
-    {
-        if (V_BSTR(&variant)) // Can be null (dmex)
-        {
-            string = PhCreateString(V_BSTR(&variant));
-        }
-
-        VariantClear(&variant);
-    }
-
-    return string;
 }
 
 HRESULT PhpWmiProviderExecMethod(
@@ -168,7 +157,6 @@ HRESULT PhpWmiProviderExecMethod(
     static PH_STRINGREF wbemResource = PH_STRINGREF_INIT(L"Root\\CIMV2");
     static PH_STRINGREF wbemLanguage = PH_STRINGREF_INIT(L"WQL");
     HRESULT status;
-    PVOID imageBaseAddress;
     PPH_STRING querySelectString = NULL;
     BSTR wbemResourceString = NULL;
     BSTR wbemLanguageString = NULL;
@@ -178,20 +166,14 @@ HRESULT PhpWmiProviderExecMethod(
     IEnumWbemClassObject* wbemEnumerator = NULL;
     IWbemClassObject* wbemClassObject;
 
-    if (!(imageBaseAddress = PhGetWbemProxImageBaseAddress()))
-        return ERROR_MOD_NOT_FOUND;
-
-    status = PhGetClassObjectDllBase(
-        imageBaseAddress,
-        &CLSID_WbemLocator,
-        &IID_IWbemLocator,
+    status = PhGetWbemLocatorClass(
         &wbemLocator
         );
 
     if (FAILED(status))
         goto CleanupExit;
 
-    wbemResourceString = SysAllocStringLen(wbemResource.Buffer, (UINT32)wbemResource.Length / sizeof(WCHAR));
+    wbemResourceString = PhStringRefToBSTR(&wbemResource);
     status = IWbemLocator_ConnectServer(
         wbemLocator,
         wbemResourceString,
@@ -207,6 +189,13 @@ HRESULT PhpWmiProviderExecMethod(
     if (FAILED(status))
         goto CleanupExit;
 
+    status = PhCoSetProxyBlanket(
+        (IUnknown*)wbemServices
+        );
+
+    if (HR_FAILED(status))
+        goto CleanupExit;
+
     querySelectString = PhFormatString(
         L"%s %s %s %s %s %s = %s",
         L"SELECT",
@@ -218,8 +207,8 @@ HRESULT PhpWmiProviderExecMethod(
         ProcessIdString
         );
 
-    wbemLanguageString = SysAllocStringLen(wbemLanguage.Buffer, (UINT32)wbemLanguage.Length / sizeof(WCHAR));
-    wbemQueryString = SysAllocStringLen(PhGetString(querySelectString), (UINT32)querySelectString->Length / sizeof(WCHAR));
+    wbemLanguageString = PhStringRefToBSTR(&wbemLanguage);
+    wbemQueryString = PhStringRefToBSTR(&querySelectString->sr);
 
     if (FAILED(status = IWbemServices_ExecQuery(
         wbemServices,
@@ -241,8 +230,8 @@ HRESULT PhpWmiProviderExecMethod(
         PPH_STRING relativePath = NULL;
         ULONG count = 0;
 
-        if (FAILED(IEnumWbemClassObject_Next(wbemEnumerator, WBEM_INFINITE, 1, &wbemClassObject, &count)))
-            break;
+        IEnumWbemClassObject_Next(wbemEnumerator, WBEM_INFINITE, 1, &wbemClassObject, &count);
+
         if (count == 0)
             break;
 
@@ -259,8 +248,8 @@ HRESULT PhpWmiProviderExecMethod(
                 PhEqualString(Entry->UserName, userName, FALSE)
                 )
             {
-                BSTR wbemPathString = SysAllocStringLen(PhGetString(relativePath), (UINT32)relativePath->Length / sizeof(WCHAR));
-                BSTR wbemMethodString = SysAllocStringLen(Method->Buffer, (UINT32)Method->Length / sizeof(WCHAR));
+                BSTR wbemPathString = PhStringRefToBSTR(&relativePath->sr);
+                BSTR wbemMethodString = PhStringRefToBSTR(Method);
 
                 status = IWbemServices_ExecMethod(
                     wbemServices,
@@ -317,7 +306,6 @@ HRESULT PhpQueryWmiProviderFileName(
 {
     static PH_STRINGREF wbemLanguage = PH_STRINGREF_INIT(L"WQL");
     HRESULT status;
-    PVOID imageBaseAddress;
     PPH_STRING fileName = NULL;
     PPH_STRING clsidString = NULL;
     PPH_STRING querySelectString = NULL;
@@ -330,20 +318,14 @@ HRESULT PhpQueryWmiProviderFileName(
     IWbemClassObject *wbemClassObject = NULL;
     ULONG count = 0;
 
-    if (!(imageBaseAddress = PhGetWbemProxImageBaseAddress()))
-        return ERROR_MOD_NOT_FOUND;
-
-    status = PhGetClassObjectDllBase(
-        imageBaseAddress,
-        &CLSID_WbemLocator,
-        &IID_IWbemLocator,
+    status = PhGetWbemLocatorClass(
         &wbemLocator
         );
 
     if (FAILED(status))
         goto CleanupExit;
 
-    wbemResourceString = SysAllocStringLen(PhGetString(ProviderNameSpace), (UINT32)ProviderNameSpace->Length / sizeof(WCHAR));
+    wbemResourceString = PhStringRefToBSTR(&ProviderNameSpace->sr);
     status = IWbemLocator_ConnectServer(
         wbemLocator,
         wbemResourceString,
@@ -359,6 +341,13 @@ HRESULT PhpQueryWmiProviderFileName(
     if (FAILED(status))
         goto CleanupExit;
 
+    status = PhCoSetProxyBlanket(
+        (IUnknown*)wbemServices
+        );
+
+    if (HR_FAILED(status))
+        goto CleanupExit;
+
     querySelectString = PhFormatString(
         L"%s %s %s %s %s %s = '%s'",
         L"SELECT",
@@ -370,8 +359,8 @@ HRESULT PhpQueryWmiProviderFileName(
         PhGetString(ProviderName)
         );
 
-    wbemLanguageString = SysAllocStringLen(wbemLanguage.Buffer, (UINT32)wbemLanguage.Length / sizeof(WCHAR));
-    wbemQueryString = SysAllocStringLen(PhGetString(querySelectString), (UINT32)querySelectString->Length / sizeof(WCHAR));
+    wbemLanguageString = PhStringRefToBSTR(&wbemLanguage);
+    wbemQueryString = PhStringRefToBSTR(&querySelectString->sr);
 
     if (FAILED(status = IWbemServices_ExecQuery(
         wbemServices,
@@ -471,7 +460,6 @@ HRESULT PhpQueryWmiProviderHostProcess(
     static PH_STRINGREF wbemResource = PH_STRINGREF_INIT(L"Root\\CIMV2");
     static PH_STRINGREF wbemLanguage = PH_STRINGREF_INIT(L"WQL");
     HRESULT status;
-    PVOID imageBaseAddress;
     PPH_LIST providerList = NULL;
     PPH_STRING querySelectString = NULL;
     BSTR wbemResourceString = NULL;
@@ -482,20 +470,14 @@ HRESULT PhpQueryWmiProviderHostProcess(
     IEnumWbemClassObject* wbemEnumerator = NULL;
     IWbemClassObject *wbemClassObject;
 
-    if (!(imageBaseAddress = PhGetWbemProxImageBaseAddress()))
-        return HRESULT_FROM_WIN32(ERROR_MOD_NOT_FOUND);
-
-    status = PhGetClassObjectDllBase(
-        imageBaseAddress,
-        &CLSID_WbemLocator,
-        &IID_IWbemLocator,
+    status = PhGetWbemLocatorClass(
         &wbemLocator
         );
 
     if (FAILED(status))
         goto CleanupExit;
 
-    wbemResourceString = SysAllocStringLen(wbemResource.Buffer, (UINT32)wbemResource.Length / sizeof(WCHAR));
+    wbemResourceString = PhStringRefToBSTR(&wbemResource);
     status = IWbemLocator_ConnectServer(
         wbemLocator,
         wbemResourceString,
@@ -511,6 +493,13 @@ HRESULT PhpQueryWmiProviderHostProcess(
     if (FAILED(status))
         goto CleanupExit;
 
+    status = PhCoSetProxyBlanket(
+        (IUnknown*)wbemServices
+        );
+
+    if (HR_FAILED(status))
+        goto CleanupExit;
+
     querySelectString = PhFormatString(
         L"%s %s %s %s %s %s = %s",
         L"SELECT",
@@ -522,8 +511,8 @@ HRESULT PhpQueryWmiProviderHostProcess(
         ProcessItem->ProcessIdString
         );
 
-    wbemLanguageString = SysAllocStringLen(wbemLanguage.Buffer, (UINT32)wbemLanguage.Length / sizeof(WCHAR));
-    wbemQueryString = SysAllocStringLen(PhGetString(querySelectString), (UINT32)querySelectString->Length / sizeof(WCHAR));
+    wbemLanguageString = PhStringRefToBSTR(&wbemLanguage);
+    wbemQueryString = PhStringRefToBSTR(&querySelectString->sr);
 
     if (FAILED(status = IWbemServices_ExecQuery(
         wbemServices,
@@ -544,8 +533,8 @@ HRESULT PhpQueryWmiProviderHostProcess(
         ULONG count = 0;
         PPH_WMI_ENTRY entry;
 
-        if (FAILED(IEnumWbemClassObject_Next(wbemEnumerator, Timeout, 1, &wbemClassObject, &count)))
-            break;
+        IEnumWbemClassObject_Next(wbemEnumerator, Timeout, 1, &wbemClassObject, &count);
+
         if (count == 0)
             break;
 
@@ -600,7 +589,6 @@ PPH_STRING PhpQueryWmiProviderStatistics(
 {
     static PH_STRINGREF wbemResource = PH_STRINGREF_INIT(L"Root\\CIMV2");
     HRESULT status;
-    PVOID imageBaseAddress;
     PPH_STRING wbemProviderString = NULL;
     BSTR wbemResourceString = NULL;
     BSTR wbemQueryString = NULL;
@@ -609,20 +597,14 @@ PPH_STRING PhpQueryWmiProviderStatistics(
     IEnumWbemClassObject* wbemEnumerator = NULL;
     IWbemClassObject *wbemClassObject;
 
-    if (!(imageBaseAddress = PhGetWbemProxImageBaseAddress()))
-        return NULL;
-
-    status = PhGetClassObjectDllBase(
-        imageBaseAddress,
-        &CLSID_WbemLocator,
-        &IID_IWbemLocator,
+    status = PhGetWbemLocatorClass(
         &wbemLocator
         );
 
     if (FAILED(status))
         goto CleanupExit;
 
-    wbemResourceString = SysAllocStringLen(wbemResource.Buffer, (UINT32)wbemResource.Length / sizeof(WCHAR));
+    wbemResourceString = PhStringRefToBSTR(&wbemResource);
     status = IWbemLocator_ConnectServer(
         wbemLocator,
         wbemResourceString,
@@ -636,6 +618,13 @@ PPH_STRING PhpQueryWmiProviderStatistics(
         );
 
     if (FAILED(status))
+        goto CleanupExit;
+
+    status = PhCoSetProxyBlanket(
+        (IUnknown*)wbemServices
+        );
+
+    if (HR_FAILED(status))
         goto CleanupExit;
 
     status = IWbemServices_GetObject(
@@ -1012,11 +1001,11 @@ VOID PhpShowWmiProviderStatus(
     {
         if (Message)
         {
-            PhShowError2(hWnd, Message, L"%s", statusMessage->Buffer);
+            PhShowError2(hWnd, Message, L"%s", PhGetString(statusMessage));
         }
         else
         {
-            PhShowError(hWnd, L"%s", statusMessage->Buffer);
+            PhShowError2(hWnd, L"Unable to perform the operation.", L"%s", PhGetString(statusMessage));
         }
 
         PhDereferenceObject(statusMessage);
@@ -1025,11 +1014,11 @@ VOID PhpShowWmiProviderStatus(
     {
         if (Message)
         {
-            PhShowError(hWnd, L"%s", Message);
+            PhShowError2(hWnd, L"Unable to perform the operation.", L"%s", Message);
         }
         else
         {
-            PhShowError(hWnd, L"%s", L"Unable to perform the operation.");
+            PhShowStatus(hWnd, L"Unable to perform the operation.", STATUS_UNSUCCESSFUL, 0);
         }
     }
 }
@@ -1518,7 +1507,10 @@ BOOLEAN NTAPI PhpWmiProviderTreeNewCallback(
         return TRUE;
     case TreeNewSortChanged:
         {
-            TreeNew_GetSort(hwnd, &context->TreeNewSortColumn, &context->TreeNewSortOrder);
+            PPH_TREENEW_SORT_CHANGED_EVENT sorting = Parameter1;
+
+            context->TreeNewSortColumn = sorting->SortColumn;
+            context->TreeNewSortOrder = sorting->SortOrder;
 
             // HACK
             if (context->TreeFilterSupport.FilterList)
@@ -1544,10 +1536,6 @@ BOOLEAN NTAPI PhpWmiProviderTreeNewCallback(
             case 'C':
                 if (GetKeyState(VK_CONTROL) < 0)
                     SendMessage(context->WindowHandle, WM_COMMAND, IDC_COPY, 0);
-                break;
-            case 'A':
-                if (GetKeyState(VK_CONTROL) < 0)
-                    TreeNew_SelectRange(context->TreeNewHandle, 0, -1);
                 break;
             }
         }
@@ -1673,19 +1661,19 @@ VOID PhpInitializeWmiProviderTree(
     TreeNew_SetCallback(Context->TreeNewHandle, PhpWmiProviderTreeNewCallback, Context);
     TreeNew_SetRedraw(Context->TreeNewHandle, FALSE);
 
+    // Default columns
     PhAddTreeNewColumn(Context->TreeNewHandle, PROCESS_WMI_COLUMN_ITEM_PROVIDER, TRUE, L"Provider", 140, PH_ALIGN_LEFT, 0, 0);
     PhAddTreeNewColumn(Context->TreeNewHandle, PROCESS_WMI_COLUMN_ITEM_NAMESPACE, TRUE, L"Namespace", 180, PH_ALIGN_LEFT, 1, 0);
     PhAddTreeNewColumn(Context->TreeNewHandle, PROCESS_WMI_COLUMN_ITEM_FILENAME, TRUE, L"File name", 260, PH_ALIGN_LEFT, 2, 0);
     PhAddTreeNewColumn(Context->TreeNewHandle, PROCESS_WMI_COLUMN_ITEM_USER, TRUE, L"User", 80, PH_ALIGN_LEFT, 3, 0);
 
-    TreeNew_SetRedraw(Context->TreeNewHandle, TRUE);
-    TreeNew_SetTriState(Context->TreeNewHandle, TRUE);
-    TreeNew_SetSort(Context->TreeNewHandle, PROCESS_WMI_COLUMN_ITEM_PROVIDER, NoSortOrder);
-
-    TreeNew_SetRowHeight(Context->TreeNewHandle, PhGetDpi(22, dpiValue));
-
     PhCmInitializeManager(&Context->Cm, Context->TreeNewHandle, PHMOTLC_MAXIMUM, PhpWmiProviderTreeNewPostSortFunction);
     PhInitializeTreeNewFilterSupport(&Context->TreeFilterSupport, Context->TreeNewHandle, Context->NodeList);
+
+    TreeNew_SetTriState(Context->TreeNewHandle, TRUE);
+    TreeNew_SetSort(Context->TreeNewHandle, PROCESS_WMI_COLUMN_ITEM_PROVIDER, NoSortOrder);
+    TreeNew_SetRowHeight(Context->TreeNewHandle, PhGetDpi(22, dpiValue));
+    TreeNew_SetRedraw(Context->TreeNewHandle, TRUE);
 }
 
 VOID PhpDeleteWmiProviderTree(

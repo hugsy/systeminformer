@@ -11,23 +11,50 @@ if not defined VSINSTALLPATH (
    goto end
 )
 
-
 :: Pre-cleanup (required since dotnet doesn't cleanup)
-if exist "tools\CustomBuildTool\bin\Release" (
-   rmdir /S /Q "tools\CustomBuildTool\bin\Release"
-)
 if exist "tools\CustomBuildTool\bin\" (
    rmdir /S /Q "tools\CustomBuildTool\bin\"
 )
 if exist "tools\CustomBuildTool\obj" (
    rmdir /S /Q "tools\CustomBuildTool\obj"
 )
+if exist "tools\CustomBuildTool\.vs" (
+   rmdir /S /Q "tools\CustomBuildTool\.vs"
+)
 
 if exist "%VSINSTALLPATH%\VC\Auxiliary\Build\vcvarsall.bat" (
    call "%VSINSTALLPATH%\VC\Auxiliary\Build\vcvarsall.bat" amd64
-   dotnet publish tools\CustomBuildTool\CustomBuildTool.sln -c Release /p:PublishProfile=Properties\PublishProfiles\amd64.pubxml /p:ContinuousIntegrationBuild=true
+   dotnet publish tools\CustomBuildTool\CustomBuildTool.sln -c Release /p:PublishProfile=Properties\PublishProfiles\amd64.pubxml /p:ContinuousIntegrationBuild=true --verbosity diagnostic
    call "%VSINSTALLPATH%\VC\Auxiliary\Build\vcvarsall.bat" arm64
-   dotnet publish tools\CustomBuildTool\CustomBuildTool.sln -c Release /p:PublishProfile=Properties\PublishProfiles\arm64.pubxml /p:ContinuousIntegrationBuild=true
+   dotnet publish tools\CustomBuildTool\CustomBuildTool.sln -c Release /p:PublishProfile=Properties\PublishProfiles\arm64.pubxml /p:ContinuousIntegrationBuild=true --verbosity diagnostic
+) else (
+   goto end
+)
+
+:: Post-cleanup (required since dotnet doesn't cleanup)
+if exist "tools\CustomBuildTool\bin\ARM64" (
+   rmdir /S /Q "tools\CustomBuildTool\bin\ARM64"
+)
+if exist "tools\CustomBuildTool\bin\x64" (
+   rmdir /S /Q "tools\CustomBuildTool\bin\x64"
+)
+if exist "tools\CustomBuildTool\bin\Release\net9.0-windows-arm64" (
+   rmdir /S /Q "tools\CustomBuildTool\bin\Release\net9.0-windows-arm64"
+)
+if exist "tools\CustomBuildTool\bin\Release\net9.0-windows-x64" (
+   rmdir /S /Q "tools\CustomBuildTool\bin\Release\net9.0-windows-x64"
+)
+if exist "tools\CustomBuildTool\obj" (
+   rmdir /S /Q "tools\CustomBuildTool\obj"
+)
+if exist "tools\CustomBuildTool\.vs" (
+   rmdir /S /Q "tools\CustomBuildTool\.vs"
+)
+
+if exist "tools\CustomBuildTool\bin\Release\%PROCESSOR_ARCHITECTURE%\CustomBuildTool.exe" (
+   echo:
+   start /B /W "" "tools\CustomBuildTool\bin\Release\%PROCESSOR_ARCHITECTURE%\CustomBuildTool.exe" "-write-tools-id"
+   echo:
 ) else (
    goto end
 )

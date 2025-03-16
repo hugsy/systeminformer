@@ -101,7 +101,7 @@ VOID RebarCreateOrUpdateWindow(
     {
         if (!ToolBarImageList || DpiChanged)
         {
-            LONG windowDpi = PhGetWindowDpi(PhMainWndHandle);
+            LONG windowDpi = SystemInformer_GetWindowDpi();
 
             if (ToolStatusConfig.ToolBarLargeIcons)
             {
@@ -134,7 +134,10 @@ VOID RebarCreateOrUpdateWindow(
         {
             if (ToolBarHandle)
             {
-                SendMessage(ToolBarHandle, TB_SETIMAGELIST, 0, (LPARAM)ToolBarImageList);
+                if (ToolBarImageList)
+                {
+                    SendMessage(ToolBarHandle, TB_SETIMAGELIST, 0, (LPARAM)ToolBarImageList);
+                }
 
                 // Remove all buttons.
                 ToolbarRemoveButons();
@@ -147,22 +150,22 @@ VOID RebarCreateOrUpdateWindow(
 
     if (ToolStatusConfig.ToolBarEnabled && !RebarHandle)
     {
-        ToolbarWindowFont = ProcessHacker_GetFont();
+        REBARINFO rebarInfo;
 
-        RebarHandle = CreateWindowEx(
-            WS_EX_TOOLWINDOW,
+        ToolbarWindowFont = SystemInformer_GetFont();
+
+        RebarHandle = CreateWindow(
             REBARCLASSNAME,
             NULL,
             WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | CCS_NODIVIDER | CCS_TOP | RBS_VARHEIGHT, // | RBS_AUTOSIZE  CCS_NOPARENTALIGN
             0, 0, 0, 0,
-            PhMainWndHandle,
+            MainWindowHandle,
             NULL,
             NULL,
             NULL
             );
 
-        ToolBarHandle = CreateWindowEx(
-            0,
+        ToolBarHandle = CreateWindow(
             TOOLBARCLASSNAME,
             NULL,
             WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | CCS_NOPARENTALIGN | CCS_NODIVIDER | TBSTYLE_FLAT | TBSTYLE_LIST | TBSTYLE_TRANSPARENT | TBSTYLE_TOOLTIPS | TBSTYLE_AUTOSIZE,
@@ -173,8 +176,11 @@ VOID RebarCreateOrUpdateWindow(
             NULL
             );
 
+        memset(&rebarInfo, 0, sizeof(REBARINFO));
+        rebarInfo.cbSize = sizeof(REBARINFO);
+
         // Set the rebar info with no imagelist.
-        SendMessage(RebarHandle, RB_SETBARINFO, 0, (LPARAM)&(REBARINFO){ sizeof(REBARINFO) });
+        SendMessage(RebarHandle, RB_SETBARINFO, 0, (LPARAM)&rebarInfo);
         // Set the toolbar struct size.
         SendMessage(ToolBarHandle, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
         // Set the toolbar extended toolbar styles.
@@ -185,6 +191,17 @@ VOID RebarCreateOrUpdateWindow(
         SetWindowFont(ToolBarHandle, ToolbarWindowFont, FALSE);
         // Add the buttons to the toolbar.
         ToolbarLoadButtonSettings();
+
+        if (EnableThemeSupport)
+        {
+            HWND tooltipWindowHandle;
+
+            if (tooltipWindowHandle = (HWND)SendMessage(ToolBarHandle, TB_GETTOOLTIPS, 0, 0))
+            {
+                PhSetControlTheme(tooltipWindowHandle, L"DarkMode_Explorer");
+                //SendMessage(tooltipWindowHandle, TTM_SETWINDOWTHEME, 0, (LPARAM)L"DarkMode_Explorer");
+            }
+        }
 
         // Inset the toolbar into the rebar control, also
         // determine the font size and adjust the toolbar height.
@@ -215,18 +232,17 @@ VOID RebarCreateOrUpdateWindow(
             WC_EDIT,
             NULL,
             WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | ES_LEFT | ES_AUTOHSCROLL,
-            0,
-            0,
-            3,
-            3,
-            RebarHandle,
+
+            0, 0,
+            0, 0,
+            MainWindowHandle,
             NULL,
             NULL,
             NULL
             ))
         {
             PhCreateSearchControl(
-                RebarHandle,
+                MainWindowHandle,
                 SearchboxHandle,
                 L"Search Processes (Ctrl+K)",
                 SearchControlCallback,
@@ -237,16 +253,15 @@ VOID RebarCreateOrUpdateWindow(
 
     if (ToolStatusConfig.StatusBarEnabled && !StatusBarHandle)
     {
-        StatusBarHandle = CreateWindowEx(
-            0,
+        StatusBarHandle = CreateWindow(
             STATUSCLASSNAME,
             NULL,
-            WS_CHILD | CCS_BOTTOM | SBARS_SIZEGRIP,
+            WS_CHILD | CCS_BOTTOM | SBARS_SIZEGRIP, // SBARS_TOOLTIPS
             0,
             0,
-            3,
-            3,
-            PhMainWndHandle,
+            0,
+            0,
+            MainWindowHandle,
             NULL,
             NULL,
             NULL
@@ -288,9 +303,7 @@ VOID RebarCreateOrUpdateWindow(
         // Add the Searchbox band into the rebar control.
         if (!RebarBandExists(REBAR_BAND_ID_SEARCHBOX))
         {
-            LONG dpiValue;
-
-            dpiValue = PhGetWindowDpi(RebarHandle);
+            LONG dpiValue = SystemInformer_GetWindowDpi();
 
             RebarBandInsert(REBAR_BAND_ID_SEARCHBOX, SearchboxHandle, PhGetDpi(215, dpiValue), height);
         }
@@ -330,11 +343,6 @@ VOID RebarCreateOrUpdateWindow(
     {
         if (StatusBarHandle && IsWindowVisible(StatusBarHandle))
             ShowWindow(StatusBarHandle, SW_HIDE);
-    }
-    if (!!PhGetIntegerSetting(L"EnableThemeSupport")) {
-        HWND hTips = (HWND)SendMessage(ToolBarHandle, TB_GETTOOLTIPS, 0, 0);
-        if (hTips)
-            PhSetControlTheme(hTips, L"DarkMode_Explorer");
     }
 
     ToolbarInitialized = TRUE;
@@ -517,8 +525,8 @@ PWSTR ToolbarGetText(
 }
 
 HBITMAP ToolbarLoadImageFromIcon(
-    _In_ ULONG Width,
-    _In_ ULONG Height,
+    _In_ LONG Width,
+    _In_ LONG Height,
     _In_ PWSTR Name,
     _In_ LONG DpiValue
     )
@@ -542,7 +550,7 @@ HBITMAP ToolbarGetImage(
         {
             if (ToolStatusConfig.ModernIcons)
             {
-                if (PhGetIntegerSetting(L"EnableThemeSupport"))
+                if (EnableThemeSupport)
                     id = IDB_ARROW_REFRESH_MODERN_LIGHT;
                 else
                     id = IDB_ARROW_REFRESH_MODERN_DARK;
@@ -557,7 +565,7 @@ HBITMAP ToolbarGetImage(
         {
             if (ToolStatusConfig.ModernIcons)
             {
-                if (PhGetIntegerSetting(L"EnableThemeSupport"))
+                if (EnableThemeSupport)
                     id = IDB_COG_EDIT_MODERN_LIGHT;
                 else
                     id = IDB_COG_EDIT_MODERN_DARK;
@@ -572,7 +580,7 @@ HBITMAP ToolbarGetImage(
         {
             if (ToolStatusConfig.ModernIcons)
             {
-                if (PhGetIntegerSetting(L"EnableThemeSupport"))
+                if (EnableThemeSupport)
                     id = IDB_FIND_MODERN_LIGHT;
                 else
                     id = IDB_FIND_MODERN_DARK;
@@ -587,7 +595,7 @@ HBITMAP ToolbarGetImage(
         {
             if (ToolStatusConfig.ModernIcons)
             {
-                if (PhGetIntegerSetting(L"EnableThemeSupport"))
+                if (EnableThemeSupport)
                     id = IDB_CHART_LINE_MODERN_LIGHT;
                 else
                     id = IDB_CHART_LINE_MODERN_DARK;
@@ -602,7 +610,7 @@ HBITMAP ToolbarGetImage(
         {
             if (ToolStatusConfig.ModernIcons)
             {
-                if (PhGetIntegerSetting(L"EnableThemeSupport"))
+                if (EnableThemeSupport)
                     id = IDB_TBAPPLICATION_MODERN_LIGHT;
                 else
                     id = IDB_TBAPPLICATION_MODERN_DARK;
@@ -617,7 +625,7 @@ HBITMAP ToolbarGetImage(
         {
             if (ToolStatusConfig.ModernIcons)
             {
-                if (PhGetIntegerSetting(L"EnableThemeSupport"))
+                if (EnableThemeSupport)
                     id = IDB_APPLICATION_GO_MODERN_LIGHT;
                 else
                     id = IDB_APPLICATION_GO_MODERN_DARK;
@@ -632,7 +640,7 @@ HBITMAP ToolbarGetImage(
         {
             if (ToolStatusConfig.ModernIcons)
             {
-                if (PhGetIntegerSetting(L"EnableThemeSupport"))
+                if (EnableThemeSupport)
                     id = IDB_CROSS_MODERN_LIGHT;
                 else
                     id = IDB_CROSS_MODERN_DARK;
@@ -647,7 +655,7 @@ HBITMAP ToolbarGetImage(
         {
             if (ToolStatusConfig.ModernIcons)
             {
-                if (PhGetIntegerSetting(L"EnableThemeSupport"))
+                if (EnableThemeSupport)
                     id = IDB_APPLICATION_GET_MODERN_LIGHT;
                 else
                     id = IDB_APPLICATION_GET_MODERN_DARK;
@@ -662,7 +670,7 @@ HBITMAP ToolbarGetImage(
         {
             if (ToolStatusConfig.ModernIcons)
             {
-                if (PhGetIntegerSetting(L"EnableThemeSupport"))
+                if (EnableThemeSupport)
                     id = IDB_LIGHTBULB_OFF_MODERN_LIGHT;
                 else
                     id = IDB_LIGHTBULB_OFF_MODERN_DARK;
@@ -697,7 +705,7 @@ VOID ToolbarLoadDefaultButtonSettings(
     VOID
     )
 {
-    LONG dpiValue = PhGetWindowDpi(PhMainWndHandle);
+    LONG dpiValue = SystemInformer_GetWindowDpi();
 
     // Pre-cache the images in the Toolbar array.
 
@@ -765,7 +773,7 @@ VOID ToolbarLoadButtonSettings(
     }
 
     count = (INT)countInteger;
-    dpiValue = PhGetWindowDpi(PhMainWndHandle);
+    dpiValue = SystemInformer_GetWindowDpi();
 
     // Allocate the button array
     buttonArray = _malloca(count * sizeof(TBBUTTON));
@@ -862,7 +870,7 @@ VOID ToolbarSaveButtonSettings(
             TBIF_BYINDEX | TBIF_IMAGE | TBIF_STYLE | TBIF_COMMAND
         };
 
-        if (SendMessage(ToolBarHandle, TB_GETBUTTONINFO, index, (LPARAM)&buttonInfo) == INT_ERROR)
+        if ((INT)SendMessage(ToolBarHandle, TB_GETBUTTONINFO, index, (LPARAM)&buttonInfo) == INT_ERROR)
             break;
 
         PhAppendFormatStringBuilder(
@@ -902,9 +910,9 @@ VOID ReBarLoadLayoutSettings(
         PH_STRINGREF idPart;
         PH_STRINGREF cxPart;
         PH_STRINGREF stylePart;
-        LONG64 idInteger;
-        LONG64 cxInteger;
-        LONG64 styleInteger;
+        ULONG64 idInteger;
+        ULONG64 cxInteger;
+        ULONG64 styleInteger;
         UINT oldBandIndex;
         REBARBANDINFO rebarBandInfo =
         {
@@ -919,9 +927,12 @@ VOID ReBarLoadLayoutSettings(
         PhSplitStringRefAtChar(&remaining, L'|', &cxPart, &remaining);
         PhSplitStringRefAtChar(&remaining, L'|', &stylePart, &remaining);
 
-        PhStringToInteger64(&idPart, 10, &idInteger);
-        PhStringToInteger64(&cxPart, 10, &cxInteger);
-        PhStringToInteger64(&stylePart, 10, &styleInteger);
+        if (!PhStringToUInt64(&idPart, 10, &idInteger))
+            continue;
+        if (!PhStringToUInt64(&cxPart, 10, &cxInteger))
+            continue;
+        if (!PhStringToUInt64(&stylePart, 10, &styleInteger))
+            continue;
 
         if ((oldBandIndex = (UINT)SendMessage(RebarHandle, RB_IDTOINDEX, (UINT)idInteger, 0)) == UINT_MAX)
             continue;

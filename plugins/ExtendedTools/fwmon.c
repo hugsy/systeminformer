@@ -15,6 +15,7 @@
 #include <fwpmu.h>
 #include <fwpsu.h>
 
+ULONG EtFwFlagsMask = 0;
 PH_CALLBACK_REGISTRATION EtFwProcessesUpdatedCallbackRegistration;
 PPH_OBJECT_TYPE EtFwObjectType = NULL;
 HANDLE EtFwEngineHandle = NULL;
@@ -139,7 +140,7 @@ typedef struct _FW_ITEM_QUERY_DATA
     PPH_STRING HostString;
 } FW_ITEM_QUERY_DATA, *PFW_ITEM_QUERY_DATA;
 
-VOID PhpQueryHostnameForEntry(
+VOID EtFwQueryHostnameForEntry(
     _In_ PFW_EVENT_ITEM Entry
     );
 
@@ -313,7 +314,7 @@ VOID FwProcessFirewallEvent(
     InsertHeadList(&EtFwAgeListHead, &entry->AgeListEntry);
 
     // Queue hostname lookup.
-    PhpQueryHostnameForEntry(entry);
+    EtFwQueryHostnameForEntry(entry);
 
     // Raise the item added event.
     PhInvokeCallback(&FwItemAddedEvent, entry);
@@ -566,117 +567,18 @@ BOOLEAN FwProcessEventType(
     return FALSE;
 }
 
-PPH_STRING EtFwGetDnsReverseNameFromAddress(
-    _In_ PPH_IP_ADDRESS Address
-    )
-{
-#define IP4_REVERSE_DOMAIN_STRING_LENGTH (IP4_ADDRESS_STRING_LENGTH + sizeof(DNS_IP4_REVERSE_DOMAIN_STRING_W) + 1)
-#define IP6_REVERSE_DOMAIN_STRING_LENGTH (IP6_ADDRESS_STRING_LENGTH + sizeof(DNS_IP6_REVERSE_DOMAIN_STRING_W) + 1)
-
-    switch (Address->Type)
-    {
-    case PH_IPV4_NETWORK_TYPE:
-        {
-            static PH_STRINGREF reverseLookupDomainNameSr = PH_STRINGREF_INIT(DNS_IP4_REVERSE_DOMAIN_STRING);
-            PH_FORMAT format[9];
-            SIZE_T returnLength;
-            WCHAR reverseNameBuffer[IP4_REVERSE_DOMAIN_STRING_LENGTH];
-
-            PhInitFormatU(&format[0], Address->InAddr.s_impno);
-            PhInitFormatC(&format[1], L'.');
-            PhInitFormatU(&format[2], Address->InAddr.s_lh);
-            PhInitFormatC(&format[3], L'.');
-            PhInitFormatU(&format[4], Address->InAddr.s_host);
-            PhInitFormatC(&format[5], L'.');
-            PhInitFormatU(&format[6], Address->InAddr.s_net);
-            PhInitFormatC(&format[7], L'.');
-            PhInitFormatSR(&format[8], reverseLookupDomainNameSr);
-
-            if (PhFormatToBuffer(
-                format,
-                RTL_NUMBER_OF(format),
-                reverseNameBuffer,
-                sizeof(reverseNameBuffer),
-                &returnLength
-                ))
-            {
-                PH_STRINGREF reverseNameString;
-
-                reverseNameString.Buffer = reverseNameBuffer;
-                reverseNameString.Length = returnLength - sizeof(UNICODE_NULL);
-
-                return PhCreateString2(&reverseNameString);
-            }
-            else
-            {
-                return PhFormat(format, RTL_NUMBER_OF(format), IP4_REVERSE_DOMAIN_STRING_LENGTH);
-            }
-        }
-    case PH_IPV6_NETWORK_TYPE:
-        {
-            static PH_STRINGREF reverseLookupDomainNameSr = PH_STRINGREF_INIT(DNS_IP6_REVERSE_DOMAIN_STRING);
-            PH_STRING_BUILDER stringBuilder;
-
-            // DNS_MAX_IP6_REVERSE_NAME_LENGTH
-            PhInitializeStringBuilder(&stringBuilder, IP6_REVERSE_DOMAIN_STRING_LENGTH);
-
-            for (INT i = sizeof(IN6_ADDR) - 1; i >= 0; i--)
-            {
-                PH_FORMAT format[4];
-                SIZE_T returnLength;
-                WCHAR reverseNameBuffer[IP6_REVERSE_DOMAIN_STRING_LENGTH];
-
-                PhInitFormatX(&format[0], Address->In6Addr.s6_addr[i] & 0xF);
-                PhInitFormatC(&format[1], L'.');
-                PhInitFormatX(&format[2], (Address->In6Addr.s6_addr[i] >> 4) & 0xF);
-                PhInitFormatC(&format[3], L'.');
-
-                if (PhFormatToBuffer(
-                    format,
-                    RTL_NUMBER_OF(format),
-                    reverseNameBuffer,
-                    sizeof(reverseNameBuffer),
-                    &returnLength
-                    ))
-                {
-                    PhAppendStringBuilderEx(
-                        &stringBuilder,
-                        reverseNameBuffer,
-                        returnLength - sizeof(UNICODE_NULL)
-                        );
-                }
-                else
-                {
-                    PhAppendFormatStringBuilder(
-                        &stringBuilder,
-                        L"%hhx.%hhx.",
-                        Address->In6Addr.s6_addr[i] & 0xF,
-                        (Address->In6Addr.s6_addr[i] >> 4) & 0xF
-                        );
-                }
-            }
-
-            PhAppendStringBuilder(&stringBuilder, &reverseLookupDomainNameSr);
-
-            return PhFinalStringBuilderString(&stringBuilder);
-        }
-    default:
-        return NULL;
-    }
-}
-
 PPH_STRING EtFwGetNameFromAddress(
     _In_ PPH_IP_ADDRESS Address
     )
 {
     BOOLEAN dnsLocalQuery = FALSE;
     PPH_STRING addressEndpointString = NULL;
-    PPH_STRING addressReverseString;
+    PPH_STRING addressReverseString = NULL;
     PDNS_RECORD dnsRecordList;
 
     switch (Address->Type)
     {
-    case PH_IPV4_NETWORK_TYPE:
+    case PH_NETWORK_TYPE_IPV4:
         {
             if (IN4_IS_ADDR_UNSPECIFIED(&Address->InAddr))
                 return NULL;
@@ -690,9 +592,11 @@ PPH_STRING EtFwGetNameFromAddress(
             {
                 dnsLocalQuery = TRUE;
             }
+
+            addressReverseString = PhDnsReverseLookupNameFromAddress(PH_NETWORK_TYPE_IPV4, &Address->InAddr);
         }
         break;
-    case PH_IPV6_NETWORK_TYPE:
+    case PH_NETWORK_TYPE_IPV6:
         {
             if (IN6_IS_ADDR_UNSPECIFIED(&Address->In6Addr))
                 return NULL;
@@ -704,11 +608,13 @@ PPH_STRING EtFwGetNameFromAddress(
             {
                 dnsLocalQuery = TRUE;
             }
+
+            addressReverseString = PhDnsReverseLookupNameFromAddress(PH_NETWORK_TYPE_IPV6, &Address->In6Addr);
         }
         break;
     }
 
-    if (!(addressReverseString = EtFwGetDnsReverseNameFromAddress(Address)))
+    if (PhIsNullOrEmptyString(addressReverseString))
     {
         if (dnsLocalQuery) // See note below (dmex)
             return PhReferenceEmptyString();
@@ -853,6 +759,8 @@ VOID EtFwFlushHostNameData(
     PSLIST_ENTRY entry;
     PFW_ITEM_QUERY_DATA data;
 
+    if (!FlagOn(EtFwFlagsMask, FW_PROVIDER_FLAG_HOSTNAME))
+        return;
     //if (!RtlFirstEntrySList(&EtFwQueryListHead))
     //    return;
 
@@ -881,13 +789,17 @@ VOID EtFwFlushHostNameData(
     }
 }
 
-VOID PhpQueryHostnameForEntry(
+VOID EtFwQueryHostnameForEntry(
     _In_ PFW_EVENT_ITEM Entry
     )
 {
     PFW_RESOLVE_CACHE_ITEM cacheItem;
 
+    if (!FlagOn(EtFwFlagsMask, FW_PROVIDER_FLAG_HOSTNAME))
+        return;
+
     // Local
+
     if (!PhIsNullIpAddress(&Entry->LocalEndpoint.Address))
     {
         PhAcquireQueuedLockShared(&EtFwCacheHashtableLock);
@@ -911,6 +823,7 @@ VOID PhpQueryHostnameForEntry(
     }
 
     // Remote
+
     if (!PhIsNullIpAddress(&Entry->RemoteEndpoint.Address))
     {
         PhAcquireQueuedLockShared(&EtFwCacheHashtableLock);
@@ -1244,7 +1157,7 @@ BOOLEAN EtFwLookupAddressClass(
 {
     switch (Address->Type)
     {
-    case PH_IPV4_NETWORK_TYPE:
+    case PH_NETWORK_TYPE_IPV4:
         {
             PIN_ADDR inAddr = (PIN_ADDR)&Address->Ipv4;
 
@@ -1298,7 +1211,7 @@ BOOLEAN EtFwLookupAddressClass(
             }
         }
         break;
-    case PH_IPV6_NETWORK_TYPE:
+    case PH_NETWORK_TYPE_IPV6:
         {
             PIN6_ADDR inAddr6 = (PIN6_ADDR)&Address->Ipv6;
 
@@ -1353,7 +1266,7 @@ BOOLEAN EtFwLookupAddressScope(
 {
     switch (Address->Type)
     {
-    case PH_IPV4_NETWORK_TYPE:
+    case PH_NETWORK_TYPE_IPV4:
         {
             switch (Ipv4AddressScope((PUCHAR)&Address->Ipv4))
             {
@@ -1402,7 +1315,7 @@ BOOLEAN EtFwLookupAddressScope(
             }
         }
         break;
-    case PH_IPV6_NETWORK_TYPE:
+    case PH_NETWORK_TYPE_IPV6:
         {
             switch (Ipv6AddressScope((PUCHAR)&Address->Ipv6))
             {
@@ -1864,8 +1777,8 @@ VOID CALLBACK EtFwEventCallback(
         {
             if (FlagOn(FwEvent->header.flags, FWPM_NET_EVENT_FLAG_LOCAL_ADDR_SET))
             {
-                entry.LocalEndpoint.Address.Type = PH_IPV4_NETWORK_TYPE;
-                entry.LocalEndpoint.Address.Ipv4 = _byteswap_ulong(FwEvent->header.localAddrV4);
+                entry.LocalEndpoint.Address.Type = PH_NETWORK_TYPE_IPV4;
+                entry.LocalEndpoint.Address.InAddr.s_addr = _byteswap_ulong(FwEvent->header.localAddrV4);
             }
 
             if (FlagOn(FwEvent->header.flags, FWPM_NET_EVENT_FLAG_LOCAL_PORT_SET))
@@ -1875,8 +1788,8 @@ VOID CALLBACK EtFwEventCallback(
 
             if (FlagOn(FwEvent->header.flags, FWPM_NET_EVENT_FLAG_REMOTE_ADDR_SET))
             {
-                entry.RemoteEndpoint.Address.Type = PH_IPV4_NETWORK_TYPE;
-                entry.RemoteEndpoint.Address.Ipv4 = _byteswap_ulong(FwEvent->header.remoteAddrV4);
+                entry.RemoteEndpoint.Address.Type = PH_NETWORK_TYPE_IPV4;
+                entry.RemoteEndpoint.Address.InAddr.s_addr = _byteswap_ulong(FwEvent->header.remoteAddrV4);
             }
 
             if (FlagOn(FwEvent->header.flags, FWPM_NET_EVENT_FLAG_REMOTE_PORT_SET))
@@ -1888,7 +1801,7 @@ VOID CALLBACK EtFwEventCallback(
         {
             if (FlagOn(FwEvent->header.flags, FWPM_NET_EVENT_FLAG_LOCAL_ADDR_SET))
             {
-                entry.LocalEndpoint.Address.Type = PH_IPV6_NETWORK_TYPE;
+                entry.LocalEndpoint.Address.Type = PH_NETWORK_TYPE_IPV6;
                 memcpy(entry.LocalEndpoint.Address.Ipv6, FwEvent->header.localAddrV6.byteArray16, 16);
             }
 
@@ -1899,7 +1812,7 @@ VOID CALLBACK EtFwEventCallback(
 
             if (FlagOn(FwEvent->header.flags, FWPM_NET_EVENT_FLAG_REMOTE_ADDR_SET))
             {
-                entry.RemoteEndpoint.Address.Type = PH_IPV6_NETWORK_TYPE;
+                entry.RemoteEndpoint.Address.Type = PH_NETWORK_TYPE_IPV6;
                 memcpy(entry.RemoteEndpoint.Address.Ipv6, FwEvent->header.remoteAddrV6.byteArray16, 16);
             }
 
@@ -1926,7 +1839,7 @@ VOID CALLBACK EtFwEventCallback(
 
             if (entry.ProcessItem = EtFwGetFileNameProcessCachedSlow(fileName))
             {
-                PhSwapReference(&entry.ProcessFileNameWin32, entry.ProcessItem->FileNameWin32);
+                PhSwapReference(&entry.ProcessFileNameWin32, PhGetFileName(entry.ProcessItem->FileName));
             }
 
             PhDereferenceObject(fileName);
@@ -1971,7 +1884,7 @@ VOID CALLBACK EtFwEventCallback(
     {
         PhMoveReference(&entry.ProcessItem, PhReferenceProcessItem(SYSTEM_PROCESS_ID));
         PhSwapReference(&entry.ProcessFileName, entry.ProcessItem->FileName);
-        PhSwapReference(&entry.ProcessFileNameWin32, entry.ProcessItem->FileNameWin32);
+        PhSwapReference(&entry.ProcessFileNameWin32, PhGetFileName(entry.ProcessItem->FileName));
         PhSwapReference(&entry.ProcessBaseString, entry.ProcessItem->ProcessName);
     }
 

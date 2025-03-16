@@ -26,10 +26,10 @@ namespace CustomBuildTool
         private const string Includes =
 @"#include <kphlibbase.h>";
 
-        private const UInt32 Version = 14;
+        private const UInt32 Version = 15;
 
-        private static readonly byte[] SessionTokenPublicKey = new byte[]
-        {
+        private static readonly byte[] SessionTokenPublicKey =
+        [
             0x52, 0x53, 0x41, 0x31, 0x00, 0x10, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
             0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x01, 0x00, 0x01, 0xDE, 0x4C, 0x64, 0xCA, 0x4E, 0xEA, 0x1C, 0x06, 0xBD,
@@ -75,17 +75,48 @@ namespace CustomBuildTool
             0xB0, 0x80, 0x19, 0xB8, 0x79, 0x20, 0x8C, 0xCB, 0xA3, 0xE3, 0x53, 0x4E,
             0x8B, 0x2E, 0xC1, 0x9C, 0x0A, 0x53, 0x1A, 0x14, 0x65, 0x71, 0xC4, 0x66,
             0x4A, 0x82, 0x8A, 0xF3, 0x67, 0x50, 0xFA, 0xB7, 0x3A, 0x25, 0x61
+        ];
+
+        private enum ClassType : ushort
+        {
+            Ntoskrnl = 0,
+            Ntkrla57 = 1,
+            Lxcore = 2,
         };
 
-        private static string DynConfigC =
-$@"#define KPH_DYN_CONFIGURATION_VERSION { Version }
+        private static ClassType ClassFromString(string input)
+        {
+            switch (input)
+            {
+                case "ntoskrnl.exe": return ClassType.Ntoskrnl;
+                case "ntkrla57.exe": return ClassType.Ntkrla57;
+                case "lxcore.sys": return ClassType.Lxcore;
+                default: throw new Exception($"invalid file name {input}");
+            }
+        }
 
-#define KPH_DYN_SESSION_TOKEN_PUBLIC_KEY_LENGTH { SessionTokenPublicKey.Length }
+        private static UInt16 MachineFromString(string input)
+        {
+            switch (input)
+            {
+                case "amd64": return 0x8664;
+                case "arm64": return 0xAA64;
+                default: throw new Exception($"invalid machine {input}");
+            }
+        }
+
+        private static readonly string DynConfigC =
+$$"""
+#define KPH_DYN_CONFIGURATION_VERSION           ((ULONG){{DynData.Version}})
+#define KPH_DYN_SESSION_TOKEN_PUBLIC_KEY_LENGTH ((ULONG){{DynData.SessionTokenPublicKey.Length}})
+#define KPH_DYN_CLASS_NTOSKRNL                  ((USHORT){{(UInt16)ClassType.Ntoskrnl}})
+#define KPH_DYN_CLASS_NTKRLA57                  ((USHORT){{(UInt16)ClassType.Ntkrla57}})
+#define KPH_DYN_CLASS_LXCORE                    ((USHORT){{(UInt16)ClassType.Lxcore}})
 
 #include <pshpack1.h>
 
-typedef struct _KPH_DYN_CONFIGURATION_ARCH
-{{
+typedef struct _KPH_DYN_KERNEL_FIELDS
+{
     USHORT EgeGuid;                      // dt nt!_ETW_GUID_ENTRY Guid
     USHORT EpObjectTable;                // dt nt!_EPROCESS ObjectTable
     USHORT EreGuidEntry;                 // dt nt!_ETW_REG_ENTRY GuidEntry
@@ -113,41 +144,66 @@ typedef struct _KPH_DYN_CONFIGURATION_ARCH
     USHORT KtReadTransferCount;          // dt nt!_KTHREAD ReadTransferCount
     USHORT KtWriteTransferCount;         // dt nt!_KTHREAD WriteTransferCount
     USHORT KtOtherTransferCount;         // dt nt!_KTHREAD OtherTransferCount
+    USHORT MmSectionControlArea;         // dt nt!_SECTION u1.ControlArea
+    USHORT MmControlAreaListHead;        // dt nt!_CONTROL_AREA ListHead
+    USHORT MmControlAreaLock;            // dt nt!_CONTROL_AREA ControlAreaLock
+    USHORT EpSectionObject;              // dt nt!_EPROCESS SectionObject
+} KPH_DYN_KERNEL_FIELDS, *PKPH_DYN_KERNEL_FIELDS;
+
+typedef KPH_DYN_KERNEL_FIELDS KPH_DYN_NTOSKRNL_FIELDS;
+typedef PKPH_DYN_KERNEL_FIELDS PKPH_DYN_NTOSKRNL_FIELDS;
+typedef KPH_DYN_KERNEL_FIELDS KPH_DYN_NTKRLA57_FIELDS;
+typedef PKPH_DYN_KERNEL_FIELDS PKPH_DYN_NTKRLA57_FIELDS;
+
+typedef struct _KPH_DYN_LXCORE_FIELDS
+{
     USHORT LxPicoProc;                   // uf lxcore!LxpSyscall_GETPID
     USHORT LxPicoProcInfo;               // uf lxcore!LxpSyscall_GETPID
     USHORT LxPicoProcInfoPID;            // uf lxcore!LxpSyscall_GETPID
     USHORT LxPicoThrdInfo;               // uf lxcore!LxpSyscall_GETTID
     USHORT LxPicoThrdInfoTID;            // uf lxcore!LxpSyscall_GETTID
-    USHORT MmSectionControlArea;         // dt nt!_SECTION u1.ControlArea
-    USHORT MmControlAreaListHead;        // dt nt!_CONTROL_AREA ListHead
-    USHORT MmControlAreaLock;            // dt nt!_CONTROL_AREA ControlAreaLock
-    USHORT EpSectionObject;              // dt nt!_EPROCESS SectionObject
-}} KPH_DYN_CONFIGURATION_ARCH, *PKPH_DYN_CONFIGURATION_ARCH;
+} KPH_DYN_LXCORE_FIELDS, *PKPH_DYN_LXCORE_FIELDS;
 
-typedef struct _KPH_DYN_CONFIGURATION
-{{
-    USHORT MajorVersion;
-    USHORT MinorVersion;
-    USHORT BuildNumberMin;
-    USHORT RevisionMin;
-    USHORT BuildNumberMax;
-    USHORT RevisionMax;
-    KPH_DYN_CONFIGURATION_ARCH ArchAMD64;
-    KPH_DYN_CONFIGURATION_ARCH ArchARM64;
-}} KPH_DYN_CONFIGURATION, *PKPH_DYN_CONFIGURATION;
+typedef struct _KPH_DYN_FIELDS
+{
+    ULONG FieldsId;
+    USHORT Length;
+    BYTE Fields[ANYSIZE_ARRAY];
+} KPH_DYN_FIELDS, *PKPH_DYN_FIELDS;
 
-typedef struct _KPH_DYNDATA
-{{
+typedef struct _KPH_DYN_DATA
+{
+    USHORT Class;
+    USHORT Machine;
+    ULONG TimeDateStamp;
+    ULONG SizeOfImage;
+    ULONG Offset;
+} KPH_DYN_DATA, *PKPH_DYN_DATA;
+
+typedef struct _KPH_DYN_CONFIG
+{
     ULONG Version;
     BYTE SessionTokenPublicKey[KPH_DYN_SESSION_TOKEN_PUBLIC_KEY_LENGTH];
     ULONG Count;
-    KPH_DYN_CONFIGURATION Configs[ANYSIZE_ARRAY];
-}} KPH_DYNDATA, *PKPH_DYNDATA;
+    KPH_DYN_DATA Data[ANYSIZE_ARRAY];
+    // BYTE Fields[ANYSIZE_ARRAY];
+} KPH_DYN_CONFIG, *PKPH_DYN_CONFIG;
 
-#include <poppack.h>";
+#include <poppack.h>
+""";
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        public struct DynConfigArch
+        public struct DynDataEntry
+        {
+            public UInt16 Class;
+            public UInt16 Machine;
+            public UInt32 TimeDateStamp;
+            public UInt32 SizeOfImage;
+            public UInt32 Offset;
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct DynFieldsKernel
         {
             public UInt16 EgeGuid;
             public UInt16 EpObjectTable;
@@ -168,7 +224,7 @@ typedef struct _KPH_DYNDATA
             public UInt16 AlpcAttributesFlags;
             public UInt16 AlpcPortContext;
             public UInt16 AlpcPortObjectLock;
-            public UInt16 AlpcSequenceNo;
+            public UInt16 AlpcSequenceNo = UInt16.MaxValue;
             public UInt16 AlpcState;
             public UInt16 KtReadOperationCount;
             public UInt16 KtWriteOperationCount;
@@ -176,17 +232,12 @@ typedef struct _KPH_DYNDATA
             public UInt16 KtReadTransferCount;
             public UInt16 KtWriteTransferCount;
             public UInt16 KtOtherTransferCount;
-            public UInt16 LxPicoProc;
-            public UInt16 LxPicoProcInfo;
-            public UInt16 LxPicoProcInfoPID;
-            public UInt16 LxPicoThrdInfo;
-            public UInt16 LxPicoThrdInfoTID;
             public UInt16 MmSectionControlArea;
             public UInt16 MmControlAreaListHead;
             public UInt16 MmControlAreaLock;
             public UInt16 EpSectionObject;
 
-            public DynConfigArch()
+            public DynFieldsKernel()
             {
                 EgeGuid = UInt16.MaxValue;
                 EpObjectTable = UInt16.MaxValue;
@@ -215,11 +266,6 @@ typedef struct _KPH_DYNDATA
                 KtReadTransferCount = UInt16.MaxValue;
                 KtWriteTransferCount = UInt16.MaxValue;
                 KtOtherTransferCount = UInt16.MaxValue;
-                LxPicoProc = UInt16.MaxValue;
-                LxPicoProcInfo = UInt16.MaxValue;
-                LxPicoProcInfoPID = UInt16.MaxValue;
-                LxPicoThrdInfo = UInt16.MaxValue;
-                LxPicoThrdInfoTID = UInt16.MaxValue;
                 MmSectionControlArea = UInt16.MaxValue;
                 MmControlAreaListHead = UInt16.MaxValue;
                 MmControlAreaLock = UInt16.MaxValue;
@@ -228,28 +274,21 @@ typedef struct _KPH_DYNDATA
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        public struct DynConfig
+        public struct DynFieldsLxcore
         {
-            public UInt16 MajorVersion;
-            public UInt16 MinorVersion;
-            public UInt16 BuildNumberMin;
-            public UInt16 RevisionMin;
-            public UInt16 BuildNumberMax;
-            public UInt16 RevisionMax;
+            public UInt16 LxPicoProc;
+            public UInt16 LxPicoProcInfo;
+            public UInt16 LxPicoProcInfoPID;
+            public UInt16 LxPicoThrdInfo;
+            public UInt16 LxPicoThrdInfoTID;
 
-            public DynConfigArch ArchAMD64;
-            public DynConfigArch ArchARM64;
-
-            public DynConfig()
+            public DynFieldsLxcore()
             {
-                MajorVersion = UInt16.MaxValue;
-                MinorVersion = UInt16.MaxValue;
-                BuildNumberMin = UInt16.MaxValue;
-                RevisionMin = UInt16.MaxValue;
-                BuildNumberMax = UInt16.MaxValue;
-                RevisionMax = UInt16.MaxValue;
-                ArchAMD64 = new DynConfigArch();
-                ArchARM64 = new DynConfigArch();
+                LxPicoProc = UInt16.MaxValue;
+                LxPicoProcInfo = UInt16.MaxValue;
+                LxPicoProcInfoPID = UInt16.MaxValue;
+                LxPicoThrdInfo = UInt16.MaxValue;
+                LxPicoThrdInfoTID = UInt16.MaxValue;
             }
         }
 
@@ -259,24 +298,71 @@ typedef struct _KPH_DYNDATA
             string headerFile = $"{Build.BuildWorkingFolder}\\kphlib\\include\\kphdyn.h";
             string sourceFile = $"{Build.BuildWorkingFolder}\\kphlib\\kphdyn.c";
 
-            GenerateConfig(manifestFile, out byte[] config);
+            // Check for new or modified content. We don't want to touch the file if it's not needed.
+            {
+                string headerUpdateText = GenerateHeader();
+                string headerCurrentText = Utils.ReadAllText(headerFile);
 
-            Utils.WriteAllText(headerFile, GenerateHeader());
-            Program.PrintColorMessage($"Dynamic header -> {headerFile}", ConsoleColor.Cyan);
-            Utils.WriteAllText(sourceFile, GenerateSource(BytesToString(config)));
-            Program.PrintColorMessage($"Dynamic source -> {sourceFile}", ConsoleColor.Cyan);
+                if (!string.Equals(headerUpdateText, headerCurrentText, StringComparison.OrdinalIgnoreCase))
+                {
+                    Utils.WriteAllText(headerFile, headerUpdateText);
+                }
+
+                Program.PrintColorMessage($"Dynamic header -> {headerFile}", ConsoleColor.Cyan);
+            }
+
+            byte[] config = GenerateConfig(manifestFile);
+
+            {
+                var headerUpdateText = GenerateSource(BytesToString(config));
+                var headerCurrentText = Utils.ReadAllText(sourceFile);
+
+                if (!string.Equals(headerUpdateText, headerCurrentText, StringComparison.OrdinalIgnoreCase))
+                {
+                    Utils.WriteAllText(sourceFile, headerUpdateText);
+                }
+
+                Program.PrintColorMessage($"Dynamic source -> {sourceFile}", ConsoleColor.Cyan);
+            }
 
             if (string.IsNullOrWhiteSpace(OutDir))
                 return true;
 
+            Win32.CreateDirectory(OutDir);
+
             string configFile = $"{OutDir}\\ksidyn.bin";
 
             if (File.Exists(configFile))
+            {
+                var configUpdateBytes = Utils.ReadAllBytes(configFile).AsSpan();
+                var configSigFileName = Path.ChangeExtension(configFile, ".sig");
+
+                if (configUpdateBytes.SequenceEqual(config) && File.Exists(configSigFileName))
+                {
+                    Program.PrintColorMessage($"Dynamic config -> {configFile}", ConsoleColor.Cyan);
+                    return true;
+                }
+
                 File.Delete(configFile);
-            Directory.CreateDirectory(OutDir);
-            Utils.WriteAllBytes(configFile, config);
-            Program.PrintColorMessage($"Dynamic config -> {configFile}", ConsoleColor.Cyan);
-            return Verify.CreateSigFile("kph", configFile, StrictChecks);
+                File.Delete(configSigFileName);
+                Utils.WriteAllBytes(configFile, config);
+
+                bool configFileSig = Verify.CreateSigFile("kph", configFile, StrictChecks);
+
+                Program.PrintColorMessage($"Dynamic config -> {configFile}", ConsoleColor.Cyan);
+
+                return configFileSig;
+            }
+            else
+            {
+                Utils.WriteAllBytes(configFile, config);
+
+                bool configFileSig = Verify.CreateSigFile("kph", configFile, StrictChecks);
+
+                Program.PrintColorMessage($"Dynamic config -> {configFile}", ConsoleColor.Cyan);
+
+                return configFileSig;
+            }
         }
 
         private static string GenerateHeader()
@@ -288,12 +374,11 @@ typedef struct _KPH_DYNDATA
             sb.AppendLine("#pragma once");
             sb.AppendLine();
             sb.AppendLine(Includes);
-            sb.AppendLine();
             sb.AppendLine(DynConfigC);
             sb.AppendLine();
             sb.AppendLine("#ifdef _WIN64");
-            sb.AppendLine("extern CONST BYTE KphDynData[];");
-            sb.AppendLine("extern CONST ULONG KphDynDataLength;");
+            sb.AppendLine("extern CONST BYTE KphDynConfig[];");
+            sb.AppendLine("extern CONST ULONG KphDynConfigLength;");
             sb.AppendLine("#endif");
 
             return sb.ToString();
@@ -310,166 +395,151 @@ typedef struct _KPH_DYNDATA
             sb.AppendLine(Includes);
             sb.AppendLine();
             sb.AppendLine("#ifdef _WIN64");
-            sb.AppendLine("CONST BYTE KphDynData[] =");
+            sb.AppendLine("CONST BYTE KphDynConfig[] =");
             sb.AppendLine("{");
             sb.Append(Config);
             sb.AppendLine("};");
             sb.AppendLine();
-            sb.AppendLine("CONST ULONG KphDynDataLength = ARRAYSIZE(KphDynData);");
+            sb.AppendLine("CONST ULONG KphDynConfigLength = ARRAYSIZE(KphDynConfig);");
             sb.AppendLine("#endif");
 
             return sb.ToString();
         }
 
-        private static void GenerateConfig(
-            string ManifestFile,
-            out byte[] ConfigBytes
-            )
+        private static byte[] GenerateConfig(string ManifestFile)
         {
             var xml = new XmlDocument();
-            var configs = new List<DynConfig>(10);
-            var configNames = new List<string>(10);
+            var fieldsMap = new Dictionary<UInt32, XmlNode>();
+            var fieldsOffsets = new Dictionary<UInt32, UInt32>();
+            var fieldsStream = new MemoryStream();
+            var fieldsWirter = new BinaryWriter(fieldsStream);
+            var entries = new List<DynDataEntry>(10);
 
             xml.Load(ManifestFile);
 
             var dyn = xml.SelectSingleNode("/dyn");
             var dataNodes = dyn?.SelectNodes("data");
+            var fieldsNodes = dyn?.SelectNodes("fields");
+
+            if (dataNodes == null)
+                return null;
+            if (fieldsNodes == null)
+                return null;
+
+            foreach (XmlNode field in fieldsNodes)
+            {
+                var name = field.Attributes?.GetNamedItem("id")?.Value;
+
+                if (string.IsNullOrEmpty(name))
+                    continue;
+
+                fieldsMap.Add(UInt32.Parse(name), field);
+            }
 
             foreach (XmlNode data in dataNodes)
             {
-                var config = new DynConfig();
-                var fieldNodes = data.SelectNodes("field");
-                var min = data.Attributes?.GetNamedItem("min")?.Value;
-                var max = data.Attributes?.GetNamedItem("max")?.Value;
-                string configName = $"{min} - {max}";
+                var entry = new DynDataEntry();
+                var file = data.Attributes?.GetNamedItem("file")?.Value;
+                var arch = data.Attributes?.GetNamedItem("arch")?.Value;
+                var timestamp = data.Attributes?.GetNamedItem("timestamp")?.Value;
+                var size = data.Attributes?.GetNamedItem("size")?.Value;
+                var dynClass = ClassFromString(file);
 
-                Program.PrintColorMessage(configName, ConsoleColor.Cyan);
+                if (string.IsNullOrEmpty(timestamp))
+                    continue;
+                if (string.IsNullOrEmpty(size))
+                    continue;
 
-                string[] minParts = min.Split('.');
-                string[] maxParts = max.Split('.');
+                entry.Class = (UInt16)dynClass;
+                entry.Machine = MachineFromString(arch);
+                entry.TimeDateStamp = UInt32.Parse(timestamp[2..], NumberStyles.HexNumber);
+                entry.SizeOfImage = UInt32.Parse(size[2..], NumberStyles.HexNumber);
 
-                if (minParts.Length != 4 || maxParts.Length != 4)
+                var fieldId = UInt32.Parse(data.InnerText);
+
+                if (!fieldsOffsets.TryGetValue(fieldId, out UInt32 offset))
                 {
-                    throw new Exception("Invalid version format!");
+                    offset = (UInt32)fieldsStream.Length;
+                    fieldsOffsets.Add(fieldId, offset);
+
+                    switch (dynClass)
+                    {
+                    case ClassType.Ntoskrnl:
+                    case ClassType.Ntkrla57:
+                        {
+                            var fieldsData = new DynFieldsKernel();
+                            var fieldNodes = fieldsMap[fieldId].SelectNodes("field");
+
+                            if (fieldNodes == null)
+                                continue;
+
+                            foreach (XmlNode field in fieldNodes)
+                            {
+                                var value = field.Attributes?.GetNamedItem("value")?.Value;
+                                var name = field.Attributes?.GetNamedItem("name")?.Value;
+                               
+                                if (string.IsNullOrEmpty(name))
+                                    continue;
+
+                                var member = typeof(DynFieldsKernel).GetField(name);
+
+                                member.SetValueDirect(__makeref(fieldsData), UInt16.Parse(value[2..], NumberStyles.HexNumber));
+                            }
+
+                            fieldsWirter.Write(MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref fieldsData, 1)));
+                        }
+                        break;
+                    case ClassType.Lxcore:
+                        {
+                            var fieldsData = new DynFieldsLxcore();   
+                            var fieldNodes = fieldsMap[fieldId].SelectNodes("field");
+
+                            if (fieldNodes == null)
+                                continue;
+
+                            foreach (XmlNode field in fieldNodes)
+                            {
+                                var value = field.Attributes?.GetNamedItem("value")?.Value;
+                                var name = field.Attributes?.GetNamedItem("name")?.Value;
+                               
+                                if (string.IsNullOrEmpty(name))
+                                    continue;
+
+                                var member = typeof(DynFieldsLxcore).GetField(name);
+
+                                member.SetValueDirect(__makeref(fieldsData), UInt16.Parse(value[2..], NumberStyles.HexNumber));
+                            }
+
+                            fieldsWirter.Write(MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref fieldsData, 1)));
+                        }
+                        break;
+                    default:
+                        {
+                            throw new Exception($"invalid class {dynClass}");
+                        }
+                    }
                 }
 
-                config.MajorVersion = UInt16.Parse(minParts[0]);
-                config.MinorVersion = UInt16.Parse(minParts[1]);
+                entry.Offset = offset;
 
-                if (config.MajorVersion != UInt16.Parse(maxParts[0]))
-                {
-                    throw new Exception("Major version mismatch!");
-                }
-
-                if (config.MinorVersion != UInt16.Parse(maxParts[1]))
-                {
-                    throw new Exception("Minor version mismatch!");
-                }
-
-                config.BuildNumberMin = UInt16.Parse(minParts[2]);
-                config.RevisionMin = UInt16.Parse(minParts[3]);
-                config.BuildNumberMax = UInt16.Parse(maxParts[2]);
-                config.RevisionMax = UInt16.Parse(maxParts[3]);
-
-                foreach (XmlNode field in fieldNodes)
-                {
-                    var attributes = field.Attributes;
-                    var value = attributes?.GetNamedItem("value")?.Value;
-                    var name = attributes?.GetNamedItem("name")?.Value;
-                    var arch = attributes?.GetNamedItem("arch")?.Value;
-
-                    if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var hex = value.AsSpan(2, value.Length - 2); // Remove "0x" prefix
-                        value = ulong.Parse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture).ToString(); // Convert.ToUInt64(value, 16);
-                    }
-                    else if (value.Equals("-1", StringComparison.OrdinalIgnoreCase))
-                    {
-                        value = UInt32.MaxValue.ToString();
-                    }
-
-                    var member = typeof(DynConfigArch).GetField(name);
-
-                    if (arch == null)
-                    {
-                        member.SetValueDirect(__makeref(config.ArchAMD64), Convert.ChangeType(value, member.FieldType));
-                        member.SetValueDirect(__makeref(config.ArchARM64), Convert.ChangeType(value, member.FieldType));
-                    }
-                    else if (arch == "amd64")
-                    {
-                        member.SetValueDirect(__makeref(config.ArchAMD64), Convert.ChangeType(value, member.FieldType));
-                    }
-                    else if (arch == "arm64")
-                    {
-                        member.SetValueDirect(__makeref(config.ArchARM64), Convert.ChangeType(value, member.FieldType));
-                    }
-                    else
-                    {
-                        throw new Exception($"Invalid architecture ({arch}) specified!");
-                    }
-                }
-
-                configs.Add(config);
-                configNames.Add(configName);
-            }
-
-            if (!Validate(configs, configNames))
-            {
-                throw new Exception("Dynamic configuration is invalid!");
+                entries.Add(entry);
             }
 
             using (var stream = new MemoryStream())
-            using (var writer = new BinaryWriter(stream))
+            using (var writer = new BinaryWriter(stream, Utils.UTF8NoBOM, true))
             {
                 //
                 // Write the version, session token public key, and count first,
-                // then the blocks. This conforms with KPH_DYNDATA defined above.
+                // then the blocks. This conforms with KPH_DYN_CONFIG.
                 //
                 writer.Write(Version);
                 writer.Write(SessionTokenPublicKey);
-                writer.Write((uint)configs.Count);
-                writer.Write(MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(configs)));
+                writer.Write((uint)entries.Count);
+                writer.Write(MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(entries)));
+                writer.Write(fieldsStream.ToArray());
 
-                ConfigBytes = stream.ToArray();
+                return stream.ToArray();
             }
-        }
-
-        private static bool Validate(List<DynConfig> Configs, List<string> ConfigNames)
-        {
-            bool valid = true;
-
-            for (int i = 0; i < Configs.Count; i++)
-            {
-                var config = Configs[i];
-                var configName = ConfigNames[i];
-
-                if (config.MajorVersion == UInt16.MaxValue)
-                {
-                    Program.PrintColorMessage($"{configName} - MajorVersion required", ConsoleColor.Red);
-                    valid = false;
-                }
-
-                if (config.MinorVersion == UInt16.MaxValue)
-                {
-                    Program.PrintColorMessage($"{configName} - MinorVersion required", ConsoleColor.Red);
-                    valid = false;
-                }
-
-                if (config.BuildNumberMax < config.BuildNumberMin)
-                {
-                    Program.PrintColorMessage($"{configName} - BuildNumber range is invalid", ConsoleColor.Red);
-                    valid = false;
-                }
-
-                if (config.BuildNumberMax == config.BuildNumberMin &&
-                    config.RevisionMax < config.RevisionMin)
-                {
-                    Program.PrintColorMessage($"{configName} - Revision range is invalid", ConsoleColor.Red);
-                    valid = false;
-                }
-            }
-
-            return valid;
         }
 
         private static string BytesToString(byte[] Buffer)

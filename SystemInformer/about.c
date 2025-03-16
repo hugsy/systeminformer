@@ -263,12 +263,12 @@ PPH_STRING PhGetApplicationVersionString(
         PhInitFormatU(&format[5], PHAPP_VERSION_BUILD);
         PhInitFormatC(&format[6], L'.');
         PhInitFormatU(&format[7], PHAPP_VERSION_REVISION);
-        PhInitFormatS(&format[8], L" (<a href=\"https://systeminformer.sourceforge.io/fwlink?commit=");
+        PhInitFormatS(&format[8], L" (<a href=\"https://github.com/winsiderss/systeminformer/commit/");
         PhInitFormatMultiByteS(&format[9], PHAPP_VERSION_COMMIT);
         PhInitFormatS(&format[10], L"\">");
         PhInitFormatMultiByteS(&format[11], PHAPP_VERSION_COMMIT);
         PhInitFormatS(&format[12], L"</a>) ");
-        PhInitFormatS(&format[13], (PWSTR)channelName);
+        PhInitFormatS(&format[13], channelName);
 
         return PhFormat(format, RTL_NUMBER_OF(format), 0);
     }
@@ -288,7 +288,7 @@ PPH_STRING PhGetApplicationVersionString(
         PhInitFormatS(&format[8], L" (");
         PhInitFormatMultiByteS(&format[9], PHAPP_VERSION_COMMIT);
         PhInitFormatS(&format[10], L") ");
-        PhInitFormatS(&format[11], (PWSTR)channelName);
+        PhInitFormatS(&format[11], channelName);
 
         return PhFormat(format, RTL_NUMBER_OF(format), 0);
     }
@@ -305,7 +305,7 @@ PPH_STRING PhGetApplicationVersionString(
     PhInitFormatC(&format[6], L'.');
     PhInitFormatU(&format[7], PHAPP_VERSION_REVISION);
     PhInitFormatC(&format[8], L' ');
-    PhInitFormatS(&format[9], (PWSTR)channelName);
+    PhInitFormatS(&format[9], channelName);
 
     return PhFormat(format, RTL_NUMBER_OF(format), 0);
 #endif

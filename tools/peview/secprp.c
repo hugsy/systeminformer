@@ -189,7 +189,7 @@ VOID PvInitializeCertificateTree(
     TreeNew_SetRedraw(Context->TreeNewHandle, TRUE);
     TreeNew_SetTriState(Context->TreeNewHandle, TRUE);
     TreeNew_SetSort(Context->TreeNewHandle, PV_CERTIFICATE_TREE_COLUMN_NAME_INDEX, NoSortOrder);
-    TreeNew_SetRowHeight(Context->TreeNewHandle, 22);
+    TreeNew_SetRowHeight(Context->TreeNewHandle, PhGetDpi(22, PhGetWindowDpi(Context->WindowHandle)));
 
     settings = PhGetStringSetting(L"ImageSecurityTreeColumns");
     PhCmLoadSettings(Context->TreeNewHandle, &settings->sr);
@@ -601,7 +601,11 @@ BOOLEAN NTAPI PvCertificateTreeNewCallback(
         return TRUE;
     case TreeNewSortChanged:
         {
-            TreeNew_GetSort(hwnd, &context->TreeNewSortColumn, &context->TreeNewSortOrder);
+            PPH_TREENEW_SORT_CHANGED_EVENT sorting = Parameter1;
+
+            context->TreeNewSortColumn = sorting->SortColumn;
+            context->TreeNewSortOrder = sorting->SortOrder;
+
             // Force a rebuild to sort the items.
             TreeNew_NodesStructured(hwnd);
         }
@@ -792,10 +796,7 @@ VOID PvSelectAndEnsureVisibleCertificateNodes(
     if (needsRestructure)
         TreeNew_NodesStructured(Context->TreeNewHandle);
 
-    TreeNew_SetFocusNode(Context->TreeNewHandle, &leader->Node);
-    TreeNew_SetMarkNode(Context->TreeNewHandle, &leader->Node);
-    TreeNew_EnsureVisible(Context->TreeNewHandle, &leader->Node);
-    TreeNew_InvalidateNode(Context->TreeNewHandle, &leader->Node);
+    TreeNew_FocusMarkSelectNode(Context->TreeNewHandle, &leader->Node);
 }
 
 PPH_STRING PvpPeFormatDateTime(
@@ -1405,10 +1406,7 @@ VOID PvpPeSaveCertificateContext(
     cryptExportCertInfo.cStores = 1;
     cryptExportCertInfo.rghStores = &certStore;
 
-    if (CryptUIWizExport)
-    {
-        CryptUIWizExport(0, WindowHandle, NULL, &cryptExportCertInfo, NULL);
-    }
+    CryptUIWizExport(0, WindowHandle, NULL, &cryptExportCertInfo, NULL);
 }
 
 VOID NTAPI PhpPeSecuritySearchControlCallback(
@@ -1469,6 +1467,7 @@ INT_PTR CALLBACK PvpPeSecurityDlgProc(
             context->SearchHandle = GetDlgItem(hwndDlg, IDC_TREESEARCH);
 
             PvCreateSearchControl(
+                hwndDlg,
                 context->SearchHandle,
                 L"Search Certificates (Ctrl+K)",
                 PhpPeSecuritySearchControlCallback,
@@ -1620,7 +1619,16 @@ INT_PTR CALLBACK PvpPeSecurityDlgProc(
              SetBkMode((HDC)wParam, TRANSPARENT);
              SetTextColor((HDC)wParam, RGB(0, 0, 0));
              SetDCBrushColor((HDC)wParam, RGB(255, 255, 255));
-             return (INT_PTR)GetStockBrush(DC_BRUSH);
+             return (INT_PTR)PhGetStockBrush(DC_BRUSH);
+         }
+         break;
+     case WM_KEYDOWN:
+         {
+             if (LOWORD(wParam) == 'K' && GetKeyState(VK_CONTROL) < 0)
+             {
+                 SetFocus(context->SearchHandle);
+                 return TRUE;
+             }
          }
          break;
     }

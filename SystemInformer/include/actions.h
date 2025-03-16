@@ -253,6 +253,14 @@ PhUiReduceWorkingSetProcesses(
 PHAPPAPI
 BOOLEAN
 NTAPI
+PhUiSetActivityModeration(
+    _In_ HWND WindowHandle,
+    _In_ PPH_PROCESS_ITEM Process
+    );
+
+PHAPPAPI
+BOOLEAN
+NTAPI
 PhUiSetVirtualizationProcess(
     _In_ HWND WindowHandle,
     _In_ PPH_PROCESS_ITEM Process,
@@ -426,6 +434,15 @@ PhUiDeleteService(
 PHAPPAPI
 BOOLEAN
 NTAPI
+PhUiRestartServices(
+    _In_ HWND WindowHandle,
+    _In_ PPH_SERVICE_ITEM* Services,
+    _In_ ULONG NumberOfServices
+    );
+
+PHAPPAPI
+BOOLEAN
+NTAPI
 PhUiCloseConnections(
     _In_ HWND WindowHandle,
     _In_ PPH_NETWORK_ITEM *Connections,
@@ -532,6 +549,15 @@ PhUiFreeMemory(
     _In_ HANDLE ProcessId,
     _In_ PPH_MEMORY_ITEM MemoryItem,
     _In_ BOOLEAN Free
+    );
+
+PHAPPAPI
+BOOLEAN
+NTAPI
+PhUiEmptyProcessMemoryWorkingSet(
+    _In_ HWND WindowHandle,
+    _In_ HANDLE ProcessId,
+    _In_ PPH_MEMORY_ITEM MemoryItem
     );
 
 PHAPPAPI

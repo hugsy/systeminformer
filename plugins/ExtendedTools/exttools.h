@@ -18,12 +18,12 @@
 #include <settings.h>
 #include <mapldr.h>
 #include <workqueue.h>
-
-#include <math.h>
+#include <searchbox.h>
 
 #include "resource.h"
 
 #include "framemon.h"
+#include "tpm.h"
 
 // d3dkmddi requires the WDK (dmex)
 #if defined(NTDDI_WIN10_CO) && (NTDDI_VERSION >= NTDDI_WIN10_CO)
@@ -45,6 +45,7 @@ __has_include (<d3dkmthk.h>)
 #endif
 
 #include <cfgmgr32.h>
+#include <tbs.h>
 
 // Undocumented device properties (Win10 only)
 DEFINE_DEVPROPKEY(DEVPKEY_Gpu_Luid, 0x60b193cb, 0x5276, 0x4d0f, 0x96, 0xfc, 0xf1, 0x73, 0xab, 0xad, 0x3e, 0xc6, 2); // DEVPROP_TYPE_UINT64
@@ -84,6 +85,7 @@ EXTERN_C ULONG EtWindowsVersion;
 EXTERN_C BOOLEAN EtIsExecutingInWow64;
 EXTERN_C BOOLEAN EtGpuFahrenheitEnabled;
 EXTERN_C BOOLEAN EtNpuFahrenheitEnabled;
+EXTERN_C ULONG EtSampleCount;
 extern ULONG ProcessesUpdatedCount;
 extern ULONG EtUpdateInterval;
 extern USHORT EtMaxPrecisionUnit;
@@ -94,6 +96,7 @@ extern BOOLEAN EtPropagateCpuUsage;
 extern BOOLEAN EtEnableAvxSupport;
 
 #define PLUGIN_NAME L"ProcessHacker.ExtendedTools"
+#define SETTING_NAME_FIRST_RUN (PLUGIN_NAME L".FirstRun")
 #define SETTING_NAME_DISK_TREE_LIST_COLUMNS (PLUGIN_NAME L".DiskTreeListColumns")
 #define SETTING_NAME_DISK_TREE_LIST_SORT (PLUGIN_NAME L".DiskTreeListSort")
 #define SETTING_NAME_ENABLE_GPUPERFCOUNTERS (PLUGIN_NAME L".EnableGpuPerformanceCounters")
@@ -110,6 +113,8 @@ extern BOOLEAN EtEnableAvxSupport;
 #define SETTING_NAME_MODULE_SERVICES_WINDOW_POSITION (PLUGIN_NAME L".ModuleServiceWindowPosition")
 #define SETTING_NAME_MODULE_SERVICES_WINDOW_SIZE (PLUGIN_NAME L".ModuleServiceWindowSize")
 #define SETTING_NAME_MODULE_SERVICES_COLUMNS (PLUGIN_NAME L".ModuleServiceListColumns")
+#define SETTING_NAME_GPU_DETAILS_WINDOW_POSITION (PLUGIN_NAME L".GpuDetailsWindowPosition")
+#define SETTING_NAME_GPU_DETAILS_WINDOW_SIZE (PLUGIN_NAME L".GpuDetailsWindowSize")
 #define SETTING_NAME_GPU_NODES_WINDOW_POSITION (PLUGIN_NAME L".GpuNodesWindowPosition")
 #define SETTING_NAME_GPU_NODES_WINDOW_SIZE (PLUGIN_NAME L".GpuNodesWindowSize")
 #define SETTING_NAME_NPU_NODES_WINDOW_POSITION (PLUGIN_NAME L".NpuNodesWindowPosition")
@@ -144,6 +149,10 @@ extern BOOLEAN EtEnableAvxSupport;
 #define SETTING_NAME_OBJMGR_WINDOW_POSITION (PLUGIN_NAME L".ObjectManagerWindowPosition")
 #define SETTING_NAME_OBJMGR_WINDOW_SIZE (PLUGIN_NAME L".ObjectManagerWindowSize")
 #define SETTING_NAME_OBJMGR_COLUMNS (PLUGIN_NAME L".ObjectManagerWindowColumns")
+#define SETTING_NAME_OBJMGR_LIST_SORT (PLUGIN_NAME L".ObjectManagerWindowListSort")
+#define SETTING_NAME_OBJMGR_PROPERTIES_WINDOW_POSITION (PLUGIN_NAME L".ObjectManagerPropertiesWindowPosition")
+#define SETTING_NAME_OBJMGR_LAST_PATH (PLUGIN_NAME L".ObjectManagerLastPath")
+#define SETTING_NAME_OBJMGR_HISTORY (PLUGIN_NAME L".ObjectManagerHistory")
 #define SETTING_NAME_POOL_WINDOW_POSITION (PLUGIN_NAME L".PoolWindowPosition")
 #define SETTING_NAME_POOL_WINDOW_SIZE (PLUGIN_NAME L".PoolWindowSize")
 #define SETTING_NAME_POOL_TREE_LIST_COLUMNS (PLUGIN_NAME L".PoolTreeViewColumns")
@@ -153,6 +162,10 @@ extern BOOLEAN EtEnableAvxSupport;
 #define SETTING_NAME_TPM_WINDOW_POSITION (PLUGIN_NAME L".TpmWindowPosition")
 #define SETTING_NAME_TPM_WINDOW_SIZE (PLUGIN_NAME L".TpmWindowSize")
 #define SETTING_NAME_TPM_LISTVIEW_COLUMNS (PLUGIN_NAME L".TpmListViewColumns")
+#define SETTING_NAME_SMBIOS_WINDOW_POSITION (PLUGIN_NAME L".SMBIOSWindowPosition")
+#define SETTING_NAME_SMBIOS_WINDOW_SIZE (PLUGIN_NAME L".SMBIOSWindowSize")
+#define SETTING_NAME_SMBIOS_INFO_COLUMNS (PLUGIN_NAME L".SMBIOSListViewColumns")
+#define SETTING_NAME_SMBIOS_SHOW_UNDEFINED_TYPES (PLUGIN_NAME L".SMBIOSShowUndefinedTypes")
 
 VOID EtLoadSettings(
     VOID
@@ -550,7 +563,7 @@ VOID EtFormatNetworkSize(
     );
 
 VOID EtFormatDouble(
-    _In_ DOUBLE Value,
+    _In_ FLOAT Value,
     _In_ PET_PROCESS_BLOCK Block,
     _In_ PPH_PLUGIN_TREENEW_MESSAGE Message
     );
@@ -1018,13 +1031,6 @@ VOID EtEtwMiniInformationInitializing(
 
 // iconext
 
-typedef struct _TB_GRAPH_CONTEXT
-{
-    LONG GraphDpi;
-    ULONG GraphColor1;
-    ULONG GraphColor2;
-} TB_GRAPH_CONTEXT, *PTB_GRAPH_CONTEXT;
-
 extern BOOLEAN EtTrayIconTransparencyEnabled;
 
 VOID EtLoadTrayIconGuids(
@@ -1050,6 +1056,14 @@ VOID EtShowModuleServicesDialog(
 // objprp
 
 VOID EtHandlePropertiesInitializing(
+    _In_ PVOID Parameter
+    );
+
+VOID EtHandlePropertiesWindowInitialized(
+    _In_ PVOID Parameter
+    );
+
+VOID EtHandlePropertiesWindowUninitializing(
     _In_ PVOID Parameter
     );
 
@@ -1167,8 +1181,8 @@ ULONG64 EtLookupTotalGpuAdapterShared(
     );
 
 // Firewall
-
 extern BOOLEAN EtFwEnabled;
+extern ULONG EtFwFlagsMask;
 extern ULONG EtFwStatus;
 extern ULONG FwRunCount;
 extern HANDLE EtFwEngineHandle;
@@ -1227,15 +1241,15 @@ typedef struct _FW_EVENT_ITEM
 
     union
     {
-        BOOLEAN Flags;
+        ULONG Flags;
         struct
         {
-            BOOLEAN Loopback : 1;
-            BOOLEAN Spare : 3;
-            BOOLEAN LocalPortServiceResolved : 1;
-            BOOLEAN RemotePortServiceResolved : 1;
-            BOOLEAN LocalHostnameResolved : 1;
-            BOOLEAN RemoteHostnameResolved : 1;
+            ULONG Loopback : 1;
+            ULONG LocalPortServiceResolved : 1;
+            ULONG RemotePortServiceResolved : 1;
+            ULONG LocalHostnameResolved : 1;
+            ULONG RemoteHostnameResolved : 1;
+            ULONG Spare : 27;
         };
     };
 
@@ -1314,6 +1328,14 @@ VOID LoadSettingsFwTreeList(
 
 VOID SaveSettingsFwTreeList(
     VOID
+    );
+
+VOID EtFwFlushResolveCache(
+    VOID
+    );
+
+VOID EtFwQueryHostnameForEntry(
+    _In_ PFW_EVENT_ITEM Entry
     );
 
 _Success_(return)
@@ -1443,6 +1465,11 @@ typedef ULONG (WINAPI* _FwpmNetEventEnum5)(
 #define FWP_DIRECTION_MAP_FORWARD 0x3902
 #define FWP_DIRECTION_MAP_BIDIRECTIONAL 0x3903
 
+typedef enum _FW_PROVIDER_FLAG
+{
+    FW_PROVIDER_FLAG_HOSTNAME = 0x1,
+} FW_PROVIDER_FLAG;
+
 VOID InitializeFwTreeList(
     _In_ HWND hwnd
     );
@@ -1483,6 +1510,14 @@ VOID EtFwDeselectAllFwNodes(
 
 VOID EtFwSelectAndEnsureVisibleFwNode(
     _In_ PFW_EVENT_ITEM FwNode
+    );
+
+VOID EtFwInvalidateAllFwNodes(
+    VOID
+    );
+
+VOID EtFwInvalidateAllFwNodesHostnames(
+    VOID
     );
 
 VOID EtFwCopyFwList(
@@ -1612,9 +1647,57 @@ VOID EtShowFirmwareDialog(
 
 // objmgr
 
+#define PH_OBJ_KERNEL_ACCESS_ONLY                0x00010000L
+
+extern HWND EtObjectManagerDialogHandle;
+extern PPH_LIST EtObjectManagerOwnHandles;
+extern HICON EtObjectManagerPropIcon;
+extern BOOLEAN EtObjectManagerShowHandlesPage;
+
+extern ULONG EtAlpcPortTypeIndex;
+extern ULONG EtDeviceTypeIndex;
+extern ULONG EtFilterPortTypeIndex;
+extern ULONG EtFileTypeIndex;
+extern ULONG EtKeyTypeIndex;
+extern ULONG EtSectionTypeIndex;
+extern ULONG EtWinStaTypeIndex;
+
 VOID EtShowObjectManagerDialog(
     _In_ HWND ParentWindowHandle
     );
+
+NTSTATUS EtDuplicateHandleFromProcessEx(
+    _Out_ PHANDLE Handle,
+    _In_ ACCESS_MASK DesiredAccess,
+    _In_opt_ HANDLE ProcessId,
+    _In_opt_ HANDLE ProcessHandle,
+    _In_ HANDLE SourceHandle
+    );
+
+PPH_STRING EtGetWindowStationType(
+    _In_ PPH_STRINGREF StationName
+    );
+
+NTSTATUS EtObjectManagerGetHandleInfoEx(
+    _In_ HANDLE ProcessId,
+    _In_ HANDLE ProcessHandle,
+    _In_ HANDLE ObjectHandle,
+    _Out_opt_ PVOID* Object,
+    _Out_opt_ PULONG TypeIndex,
+    _Out_opt_ PULONG Attributes
+    );
+
+#include <winsta.h>
+
+ULONG EtSessionIdFromObjectName(
+    _In_ PPH_STRINGREF Name
+    );
+
+PWSTR EtMapSessionConnectState(
+    _In_ WINSTATIONSTATECLASS State
+    );
+
+#define ET_OBJMGR_HISTORY_SEPARATOR L"||"
 
 // poolmon
 
@@ -1629,6 +1712,44 @@ BOOLEAN EtTpmIsReady(
     );
 
 VOID EtShowTpmDialog(
+    _In_ HWND ParentWindowHandle
+    );
+
+_Must_inspect_result_
+NTSTATUS EtTpmOpen(
+    _Out_ PTBS_HCONTEXT TbsContextHandle
+    );
+
+NTSTATUS EtTpmClose(
+    _In_ TBS_HCONTEXT TbsContextHandle
+    );
+
+_Must_inspect_result_
+NTSTATUS EtTpmReadPublic(
+    _In_ TBS_HCONTEXT TbsContextHandle,
+    _In_ TPM_NV_INDEX Index,
+    _Out_ TPMA_NV* Attributes,
+    _Out_ PUSHORT DataSize
+    );
+
+_Must_inspect_result_
+NTSTATUS EtTpmRead(
+    _In_ TBS_HCONTEXT TbsContextHandle,
+    _In_ TPM_NV_INDEX Index,
+    _Out_writes_bytes_all_(DataSize) PBYTE Data,
+    _In_ USHORT DataSize
+    );
+
+// tpm_editor
+
+VOID EtShowTpmEditDialog(
+    _In_ HWND ParentWindowHandle,
+    _In_ TPM_NV_INDEX Index
+    );
+
+// smbios
+
+VOID EtShowSMBIOSDialog(
     _In_ HWND ParentWindowHandle
     );
 

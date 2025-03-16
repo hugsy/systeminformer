@@ -68,6 +68,8 @@ typedef struct _PH_SERVICE_QUERY_S1_DATA
     PH_SERVICE_QUERY_DATA Header;
 
     PPH_IMAGELIST_ITEM IconEntry;
+    //PH_IMAGE_VERSION_INFO VersionInfo;
+    BOOLEAN MicrosoftService;
 } PH_SERVICE_QUERY_S1_DATA, *PPH_SERVICE_QUERY_S1_DATA;
 
 typedef struct _PH_SERVICE_QUERY_S2_DATA
@@ -76,6 +78,7 @@ typedef struct _PH_SERVICE_QUERY_S2_DATA
 
     VERIFY_RESULT VerifyResult;
     PPH_STRING VerifySignerName;
+    BOOLEAN MicrosoftService;
 } PH_SERVICE_QUERY_S2_DATA, *PPH_SERVICE_QUERY_S2_DATA;
 
 VOID NTAPI PhpServiceItemDeleteProcedure(
@@ -99,10 +102,6 @@ VOID PhAddProcessItemService(
 
 VOID PhRemoveProcessItemService(
     _In_ PPH_PROCESS_ITEM ProcessItem,
-    _In_ PPH_SERVICE_ITEM ServiceItem
-    );
-
-VOID PhSubscribeServiceChangeNotifications(
     _In_ PPH_SERVICE_ITEM ServiceItem
     );
 
@@ -131,9 +130,9 @@ static HANDLE PhNonPollEventHandle = NULL;
 static LIST_ENTRY PhpNonPollServiceListHead = { &PhpNonPollServiceListHead, &PhpNonPollServiceListHead };
 static LIST_ENTRY PhpNonPollServicePendingListHead = { &PhpNonPollServicePendingListHead, &PhpNonPollServicePendingListHead };
 static SLIST_HEADER PhpServiceQueryDataListHead;
-static _NotifyServiceStatusChangeW NotifyServiceStatusChange_I = NULL;
-static _SubscribeServiceChangeNotifications SubscribeServiceChangeNotifications_I = NULL;
-static _UnsubscribeServiceChangeNotifications UnsubscribeServiceChangeNotifications_I = NULL;
+static __typeof__(&NotifyServiceStatusChangeW) NotifyServiceStatusChange_I = NULL;
+static __typeof__(&SubscribeServiceChangeNotifications) SubscribeServiceChangeNotifications_I = NULL;
+static __typeof__(&UnsubscribeServiceChangeNotifications) UnsubscribeServiceChangeNotifications_I = NULL;
 
 BOOLEAN PhServiceProviderInitialization(
     VOID
@@ -253,17 +252,14 @@ PPH_SERVICE_ITEM PhpLookupServiceItem(
 }
 
 PPH_SERVICE_ITEM PhReferenceServiceItem(
-    _In_ PWSTR Name
+    _In_ PPH_STRINGREF Name
     )
 {
     PPH_SERVICE_ITEM serviceItem;
-    PH_STRINGREF key;
-
-    PhInitializeStringRefLongHint(&key, Name);
 
     PhAcquireQueuedLockShared(&PhServiceHashtableLock);
 
-    serviceItem = PhpLookupServiceItem(&key);
+    serviceItem = PhpLookupServiceItem(Name);
 
     if (serviceItem)
         PhReferenceObject(serviceItem);
@@ -447,7 +443,7 @@ static ULONG PhHashServiceNameEntry(
     _In_ PPHP_SERVICE_NAME_ENTRY Value
     )
 {
-    return PhHashStringRefEx(&Value->Name, TRUE, PH_STRING_HASH_X65599);
+    return PhHashStringRefEx(&Value->Name, TRUE, PH_STRING_HASH_XXH32);
 }
 
 VOID PhServiceQueryStage1(
@@ -464,8 +460,27 @@ VOID PhServiceQueryStage1(
             Data->IconEntry = PhImageListExtractIcon(fileName, FALSE, 0, NULL, PhSystemDpi);
         }
 
-        // Version info.
-        //PhInitializeImageVersionInfo(&Data->VersionInfo, fileName->Buffer);
+        if (!PhEnableProcessQueryStage2)
+        {
+            static PH_STRINGREF microsoftCompanyNameSr = PH_STRINGREF_INIT(L"Microsoft");
+            PH_IMAGE_VERSION_INFO versionInfo;
+
+            if (PhInitializeImageVersionInfoCached(
+                &versionInfo, // Data->VersionInfo
+                fileName,
+                FALSE,
+                PhEnableVersionShortText
+                ))
+            {
+                // Note: This is how msconfig determines default services. (dmex)
+                if (versionInfo.CompanyName && PhStartsWithStringRef(&versionInfo.CompanyName->sr, &microsoftCompanyNameSr, TRUE))
+                {
+                    Data->MicrosoftService = TRUE;
+                }
+
+                PhDeleteImageVersionInfo(&versionInfo);
+            }
+        }
     }
 }
 
@@ -485,6 +500,16 @@ VOID PhServiceQueryStage2(
             FALSE,
             FALSE
             );
+
+        if (!PhIsNullOrEmptyString(Data->VerifySignerName))
+        {
+            static PH_STRINGREF microsoftSignerNameSr = PH_STRINGREF_INIT(L"Microsoft Windows");
+
+            if (PhEqualStringRef(&Data->VerifySignerName->sr, &microsoftSignerNameSr, TRUE))
+            {
+                Data->MicrosoftService = TRUE;
+            }
+        }
     }
 }
 
@@ -535,7 +560,7 @@ VOID PhQueueServiceQueryStage2(
     PH_WORK_QUEUE_ENVIRONMENT environment;
 
     PhInitializeWorkQueueEnvironment(&environment);
-    environment.BasePriority = THREAD_PRIORITY_BELOW_NORMAL;
+    environment.BasePriority = THREAD_PRIORITY_LOWEST;
     environment.IoPriority = IoPriorityVeryLow;
     environment.PagePriority = MEMORY_PRIORITY_VERY_LOW;
 
@@ -569,6 +594,7 @@ VOID PhpFillServiceItemStage1(
 
     serviceItem->IconEntry = Data->IconEntry;
     //memcpy(&processItem->VersionInfo, &Data->VersionInfo, sizeof(PH_IMAGE_VERSION_INFO));
+    serviceItem->MicrosoftService = !!Data->MicrosoftService;
 
     // Note: Queue stage 2 processing after filling stage1 process data.
 
@@ -586,6 +612,7 @@ VOID PhpFillServiceItemStage2(
 
     serviceItem->VerifyResult = Data->VerifyResult;
     PhMoveReference(&serviceItem->VerifySignerName, Data->VerifySignerName);
+    serviceItem->MicrosoftService = !!Data->MicrosoftService;
 }
 
 VOID PhFlushServiceQueryData(
@@ -720,10 +747,11 @@ VOID PhServiceProviderUpdate(
                 // The SCM doesn't generate notifications for drivers. So flush service
                 // information once in a while so we can detect driver events. (dmex)
                 if (runCount % PhServiceNonPollFlushInterval == 0)
+                {
+                    // Go through the queued services query data.
+                    PhFlushServiceQueryData();
                     goto UpdateStart;
-
-                // Go through the queued services query data.
-                PhFlushServiceQueryData();
+                }
 
                 // Non-poll gate is closed; skip all processing.
                 goto UpdateEnd;
@@ -1045,9 +1073,10 @@ UpdateStart:
     PhFree(services);
 
 UpdateEnd:
-    PhInvokeCallback(PhGetGeneralCallback(GeneralCallbackServiceProviderUpdatedEvent), NULL);
+    PhInvokeCallback(PhGetGeneralCallback(GeneralCallbackServiceProviderUpdatedEvent), UlongToPtr(runCount));
     runCount++;
 }
+
 VOID CALLBACK PhServiceNotifyNonPollCallback(
     _In_ PVOID pParameter
     )

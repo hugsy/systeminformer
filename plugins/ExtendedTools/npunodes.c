@@ -89,7 +89,7 @@ VOID EtShowNpuNodesDialog(
     {
         if (!NT_SUCCESS(PhCreateThreadEx(&EtNpuNodesThreadHandle, EtpNpuNodesDialogThreadStart, ParentWindowHandle)))
         {
-            PhShowError(ParentWindowHandle, L"%s", L"Unable to create the window.");
+            PhShowError2(ParentWindowHandle, L"Unable to create the window.", L"%s", L"");
             return;
         }
 
@@ -138,8 +138,8 @@ INT_PTR CALLBACK EtpNpuNodesDlgProc(
                     WS_VISIBLE | WS_CHILD | WS_BORDER,
                     0,
                     0,
-                    3,
-                    3,
+                    0,
+                    0,
                     hwndDlg,
                     NULL,
                     NULL,

@@ -831,24 +831,24 @@ CleanupExit:
 }
 
 BOOLEAN NTAPI EtEnumDirectoryObjectsCallback(
+    _In_ HANDLE RootDirectory,
     _In_ PPH_STRINGREF Name,
     _In_ PPH_STRINGREF TypeName,
-    _In_opt_ PVOID Context
+    _In_ PREPARSE_WINDOW_CONTEXT Context
     )
 {
     static PH_STRINGREF volumePath = PH_STRINGREF_INIT(L"HarddiskVolume");
-    PREPARSE_WINDOW_CONTEXT context = Context;
     PH_STRINGREF stringBefore;
     PH_STRINGREF stringAfter;
     ULONG64 volumeIndex = ULLONG_MAX;
 
-    if (context && PhStartsWithStringRef(Name, &volumePath, TRUE))
+    if (PhStartsWithStringRef(Name, &volumePath, TRUE))
     {
         if (PhSplitStringRefAtString(Name, &volumePath, FALSE, &stringBefore, &stringAfter))
         {
             if (PhStringToInteger64(&stringAfter, 0, &volumeIndex))
             {
-                switch (context->MenuItemIndex)
+                switch (Context->MenuItemIndex)
                 {
                 case ID_REPARSE_POINTS:
                     EtEnumerateVolumeReparsePoints(volumeIndex, EtEnumVolumeReparseCallback, Context);
@@ -871,24 +871,15 @@ NTSTATUS EtEnumerateVolumeDirectoryObjects(
     _In_ PREPARSE_WINDOW_CONTEXT Context
     )
 {
+    static PH_STRINGREF name = PH_STRINGREF_INIT(L"\\Device");
     NTSTATUS status;
     HANDLE directoryHandle;
-    OBJECT_ATTRIBUTES objectAttributes;
-    UNICODE_STRING name;
 
-    RtlInitUnicodeString(&name, L"\\Device");
-    InitializeObjectAttributes(
-        &objectAttributes,
-        &name,
-        OBJ_CASE_INSENSITIVE,
-        NULL,
-        NULL
-        );
-
-    status = NtOpenDirectoryObject(
+    status = PhOpenDirectoryObject(
         &directoryHandle,
         DIRECTORY_QUERY,
-        &objectAttributes
+        NULL,
+        &name
         );
 
     if (NT_SUCCESS(status))

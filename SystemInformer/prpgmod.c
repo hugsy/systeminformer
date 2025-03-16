@@ -26,7 +26,7 @@
 #include <settings.h>
 #include <verify.h>
 
-static PH_STRINGREF EmptyModulesText = PH_STRINGREF_INIT(L"There are no modules to display.");
+static CONST PH_STRINGREF EmptyModulesText = PH_STRINGREF_INIT(L"There are no modules to display.");
 
 static VOID NTAPI ModuleAddedHandler(
     _In_ PVOID Parameter,
@@ -68,6 +68,16 @@ static VOID NTAPI ModulesUpdatedHandler(
     PPH_MODULES_CONTEXT modulesContext = (PPH_MODULES_CONTEXT)Context;
 
     PostMessage(modulesContext->WindowHandle, WM_PH_MODULES_UPDATED, PhGetRunIdProvider(&modulesContext->ProviderRegistration), 0);
+}
+
+static VOID NTAPI ModulesUpdateAutomaticallyHandler(
+    _In_ PVOID Parameter,
+    _In_ PVOID Context
+    )
+{
+    PPH_MODULES_CONTEXT modulesContext = (PPH_MODULES_CONTEXT)Context;
+
+    PhSetEnabledProvider(&modulesContext->ProviderRegistration, (BOOLEAN)PtrToUlong(Parameter));
 }
 
 VOID PhpInitializeModuleMenu(
@@ -685,6 +695,7 @@ INT_PTR CALLBACK PhpProcessModulesDlgProc(
             modulesContext->ListContext.ProcessId = processItem->ProcessId;
             modulesContext->ListContext.ProcessCreateTime = processItem->CreateTime;
             modulesContext->ListContext.HasServices = processItem->ServiceList && processItem->ServiceList->Count != 0;
+            modulesContext->ListContext.BoldFont = PhDuplicateFontWithNewWeight(GetWindowFont(modulesContext->TreeNewHandle), FW_BOLD);
 
             // Initialize the search box. (dmex)
             PhCreateSearchControl(
@@ -715,6 +726,13 @@ INT_PTR CALLBACK PhpProcessModulesDlgProc(
             PhSetEnabledProvider(&modulesContext->ProviderRegistration, TRUE);
             PhBoostProvider(&modulesContext->ProviderRegistration, NULL);
 
+            PhRegisterCallback(
+                PhGetGeneralCallback(GeneralCallbackUpdateAutomatically),
+                ModulesUpdateAutomaticallyHandler,
+                modulesContext,
+                &modulesContext->ChangedEventRegistration
+                );
+
             PhInitializeWindowTheme(hwndDlg, PhEnableThemeSupport);
         }
         break;
@@ -740,6 +758,11 @@ INT_PTR CALLBACK PhpProcessModulesDlgProc(
                 &modulesContext->Provider->UpdatedEvent,
                 &modulesContext->UpdatedEventRegistration
                 );
+            PhUnregisterCallback(
+                PhGetGeneralCallback(GeneralCallbackUpdateAutomatically),
+                &modulesContext->ChangedEventRegistration
+                );
+
             PhUnregisterProvider(&modulesContext->ProviderRegistration);
             PhDereferenceObject(modulesContext->Provider);
             PhDeleteProviderEventQueue(&modulesContext->EventQueue);
@@ -756,6 +779,11 @@ INT_PTR CALLBACK PhpProcessModulesDlgProc(
             PhSaveSettingsModuleList(&modulesContext->ListContext);
             PhDeleteModuleList(&modulesContext->ListContext);
 
+            if (modulesContext->ListContext.BoldFont)
+            {
+                DeleteFont(modulesContext->ListContext.BoldFont);
+            }
+
             PhClearReference(&modulesContext->ErrorMessage);
             PhFree(modulesContext);
         }
@@ -770,6 +798,15 @@ INT_PTR CALLBACK PhpProcessModulesDlgProc(
                 PhAddPropPageLayoutItem(hwndDlg, modulesContext->TreeNewHandle, dialogItem, PH_ANCHOR_ALL);
                 PhEndPropPageLayout(hwndDlg, propPageContext);
             }
+        }
+        break;
+    case WM_DPICHANGED_AFTERPARENT:
+        {
+            HFONT fontHandle = modulesContext->ListContext.BoldFont;
+            modulesContext->ListContext.BoldFont = PhDuplicateFontWithNewWeight(GetWindowFont(modulesContext->TreeNewHandle), FW_BOLD);
+            if (fontHandle) DeleteFont(fontHandle);
+
+            PhInvalidateAllModuleNodes(&modulesContext->ListContext);
         }
         break;
     case WM_COMMAND:
@@ -1044,6 +1081,12 @@ INT_PTR CALLBACK PhpProcessModulesDlgProc(
 
             PhTickModuleNodes(&modulesContext->ListContext);
 
+            if (count != 0)
+                TreeNew_SetRedraw(modulesContext->TreeNewHandle, TRUE);
+
+            // Refresh the visible nodes.
+            PhApplyTreeNewFilters(&modulesContext->ListContext.TreeFilterSupport);
+
             if (modulesContext->LastRunStatus != modulesContext->Provider->RunStatus)
             {
                 NTSTATUS status;
@@ -1069,12 +1112,6 @@ INT_PTR CALLBACK PhpProcessModulesDlgProc(
 
                 InvalidateRect(modulesContext->TreeNewHandle, NULL, FALSE);
             }
-
-            // Refresh the visible nodes.
-            PhApplyTreeNewFilters(&modulesContext->ListContext.TreeFilterSupport);
-
-            if (count != 0)
-                TreeNew_SetRedraw(modulesContext->TreeNewHandle, TRUE);
         }
         break;
     }

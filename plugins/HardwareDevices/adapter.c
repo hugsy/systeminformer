@@ -40,11 +40,9 @@ VOID NetworkDevicesInitialize(
 }
 
 VOID NetworkDevicesUpdate(
-    VOID
+    _In_ ULONG RunCount
     )
 {
-    static ULONG runCount = 0; // MUST keep in sync with runCount in process provider
-
     PhAcquireQueuedLockShared(&NetworkDevicesListLock);
 
     for (ULONG i = 0; i < NetworkDevicesList->Count; i++)
@@ -177,10 +175,15 @@ VOID NetworkDevicesUpdate(
             entry->HaveFirstSample = TRUE;
         }
 
-        if (runCount != 0)
+        if (RunCount != 0)
         {
             entry->CurrentNetworkSend = entry->NetworkSendDelta.Delta;
             entry->CurrentNetworkReceive = entry->NetworkReceiveDelta.Delta;
+
+            entry->CurrentNetworkSend *= 1000;
+            entry->CurrentNetworkSend /= NetUpdateInterval;
+            entry->CurrentNetworkReceive *= 1000;
+            entry->CurrentNetworkReceive /= NetUpdateInterval;
 
             PhAddItemCircularBuffer_ULONG64(&entry->OutboundBuffer, entry->CurrentNetworkSend);
             PhAddItemCircularBuffer_ULONG64(&entry->InboundBuffer, entry->CurrentNetworkReceive);
@@ -190,8 +193,6 @@ VOID NetworkDevicesUpdate(
     }
 
     PhReleaseQueuedLockShared(&NetworkDevicesListLock);
-
-    runCount++;
 }
 
 VOID NetworkDeviceUpdateDeviceInfo(
@@ -297,7 +298,7 @@ VOID InitializeNetAdapterId(
     Id->InterfaceIndex = InterfaceIndex;
     Id->InterfaceLuid = InterfaceLuid;
     PhSetReference(&Id->InterfaceGuidString, InterfaceGuidString);
-    Id->InterfacePath = PhConcatStringRef2(&PhNtDosDevicesPrefix, &InterfaceGuidString->sr);
+    Id->InterfacePath = PhConcatStringRef2(&PhNtDevicePathPrefix, &InterfaceGuidString->sr); // PhNtDosDevicesPrefix
 
     if (NT_SUCCESS(PhStringToGuid(&InterfaceGuidString->sr, &Id->InterfaceGuid)))
     {

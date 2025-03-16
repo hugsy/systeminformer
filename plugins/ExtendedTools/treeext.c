@@ -56,9 +56,6 @@ typedef enum _PHP_AGGREGATE_LOCATION
 static ULONG ProcessTreeListSortColumn;
 static PH_SORT_ORDER ProcessTreeListSortOrder;
 
-static GUID IID_INetFwMgr_I = { 0xf7898af5, 0xcac4, 0x4632, { 0xa2, 0xec, 0xda, 0x06, 0xe5, 0x11, 0x1a, 0xf2 } };
-static GUID CLSID_NetFwMgr_I = { 0x304ce942, 0x6e39, 0x40d8, { 0x94, 0x3a, 0xb9, 0x13, 0xc4, 0x0c, 0x9c, 0xd4 } };
-
 VOID EtpAddTreeNewColumn(
     _In_ PPH_PLUGIN_TREENEW_INFORMATION TreeNewInfo,
     _In_ ULONG SubId,
@@ -327,7 +324,7 @@ VOID EtProcessTreeNewMessage(
 
                     PhpAggregateFieldIfNeeded(processNode, AggregateTypeInt64, AggregateLocationProcessItem, FIELD_OFFSET(ET_PROCESS_BLOCK, DiskReadRawDelta.Delta), &number);
 
-                    EtFormatSize(number, block, message);
+                    EtFormatRate(number, block, message);
                 }
                 break;
             case ETPRTNC_DISKWRITEBYTESDELTA:
@@ -336,7 +333,7 @@ VOID EtProcessTreeNewMessage(
 
                     PhpAggregateFieldIfNeeded(processNode, AggregateTypeInt64, AggregateLocationProcessItem, FIELD_OFFSET(ET_PROCESS_BLOCK, DiskWriteRawDelta.Delta), &number);
 
-                    EtFormatSize(number, block, message);
+                    EtFormatRate(number, block, message);
                 }
                 break;
             case ETPRTNC_DISKTOTALBYTESDELTA:
@@ -346,7 +343,7 @@ VOID EtProcessTreeNewMessage(
                     PhpAggregateFieldIfNeeded(processNode, AggregateTypeInt64, AggregateLocationProcessItem, FIELD_OFFSET(ET_PROCESS_BLOCK, DiskReadRawDelta.Delta), &number);
                     PhpAggregateFieldIfNeeded(processNode, AggregateTypeInt64, AggregateLocationProcessItem, FIELD_OFFSET(ET_PROCESS_BLOCK, DiskWriteRawDelta.Delta), &number);
 
-                    EtFormatSize(number, block, message);
+                    EtFormatRate(number, block, message);
                 }
                 break;
             case ETPRTNC_NETWORKRECEIVES:
@@ -401,7 +398,7 @@ VOID EtProcessTreeNewMessage(
 
                     PhpAggregateFieldIfNeeded(processNode, AggregateTypeInt64, AggregateLocationProcessItem, FIELD_OFFSET(ET_PROCESS_BLOCK, NetworkReceiveDelta.Delta), &number);
 
-                    EtFormatInt64(number, block, message);
+                    EtFormatRate(number, block, message);
                 }
                 break;
             case ETPRTNC_NETWORKSENDSDELTA:
@@ -410,7 +407,7 @@ VOID EtProcessTreeNewMessage(
 
                     PhpAggregateFieldIfNeeded(processNode, AggregateTypeInt64, AggregateLocationProcessItem, FIELD_OFFSET(ET_PROCESS_BLOCK, NetworkSendDelta.Delta), &number);
 
-                    EtFormatInt64(number, block, message);
+                    EtFormatRate(number, block, message);
                 }
                 break;
             case ETPRTNC_NETWORKRECEIVEBYTESDELTA:
@@ -629,7 +626,10 @@ VOID EtProcessTreeNewMessage(
     }
     else if (message->Message == TreeNewSortChanged)
     {
-        TreeNew_GetSort(message->TreeNewHandle, &ProcessTreeListSortColumn, &ProcessTreeListSortOrder);
+        PPH_TREENEW_SORT_CHANGED_EVENT sorting = message->Parameter1;
+
+        ProcessTreeListSortColumn = sorting->SortColumn;
+        ProcessTreeListSortOrder = sorting->SortOrder;
     }
     else if (message->Message == TreeNewNodeExpanding)
     {
@@ -666,9 +666,6 @@ VOID EtProcessTreeNewMessage(
         SIZE_T returnLength;
         FLOAT decimal = 0;
         ULONG64 number = 0;
-
-        if (ProcessesUpdatedCount != 3)
-            return;
 
         switch (message->SubId)
         {
@@ -923,12 +920,12 @@ VOID EtProcessTreeNewMessage(
                 PH_FORMAT format[2];
                 ULONG64 value;
 
+                if (number == 0)
+                    break;
+
                 value = number;
                 value *= 1000;
                 value /= EtUpdateInterval;
-
-                if (value == 0)
-                    break;
 
                 PhInitFormatSize(&format[0], value);
                 PhInitFormatS(&format[1], L"/s");
@@ -944,10 +941,10 @@ VOID EtProcessTreeNewMessage(
             {
                 PH_FORMAT format[2];
 
-                if (decimal == 0.0)
+                if (decimal == 0.f)
                     break;
 
-                decimal *= 100;
+                decimal *= 100.f;
                 PhInitFormatF(&format[0], decimal, 2);
                 PhInitFormatC(&format[1], L'%');
 
@@ -962,7 +959,7 @@ VOID EtProcessTreeNewMessage(
             {
                 PH_FORMAT format[1];
 
-                if (decimal == 0.0)
+                if (decimal == 0.f)
                     break;
 
                 PhInitFormatF(&format[0], decimal, 2);
@@ -978,10 +975,10 @@ VOID EtProcessTreeNewMessage(
             {
                 PH_FORMAT format[2];
 
-                if (decimal == 0.0)
+                if (decimal == 0.f)
                     break;
 
-                decimal *= 100;
+                decimal *= 100.f;
                 PhInitFormatF(&format[0], decimal, 2);
                 PhInitFormatC(&format[1], L'%');
 
@@ -1235,13 +1232,13 @@ VOID EtNetworkTreeNewMessage(
 
                     if (block->FirewallStatus >= FirewallUnknownStatus && block->FirewallStatus < FirewallMaximumStatus)
                     {
-                        static PH_STRINGREF strings[FirewallMaximumStatus] =
+                        static CONST PH_STRINGREF strings[FirewallMaximumStatus] =
                         {
                             PH_STRINGREF_INIT(L"Unknown"),
                             PH_STRINGREF_INIT(L"Allowed, not restricted"),
                             PH_STRINGREF_INIT(L"Allowed, restricted"),
                             PH_STRINGREF_INIT(L"Not allowed, not restricted"),
-                            PH_STRINGREF_INIT(L"Not allowed, restricted")
+                            PH_STRINGREF_INIT(L"Not allowed, restricted"),
                         };
 
                         block->TextCacheLength[message->SubId] = strings[block->FirewallStatus].Length;
@@ -1355,6 +1352,7 @@ ET_FIREWALL_STATUS EtQueryFirewallStatus(
     static INetFwMgr* manager = NULL;
     ET_FIREWALL_STATUS result;
     PPH_PROCESS_ITEM processItem;
+    PPH_STRING imageFileName;
     BSTR imageFileNameBStr;
     BSTR localAddressBStr;
     VARIANT allowed;
@@ -1362,7 +1360,7 @@ ET_FIREWALL_STATUS EtQueryFirewallStatus(
 
     if (!manager)
     {
-        if (!SUCCEEDED(PhGetClassObject(L"firewallapi.dll", &CLSID_NetFwMgr_I, &IID_INetFwMgr_I, &manager)))
+        if (!SUCCEEDED(PhGetClassObject(L"firewallapi.dll", &CLSID_NetFwMgr, &IID_INetFwMgr, &manager)))
             return FirewallUnknownStatus;
 
         if (!manager)
@@ -1374,15 +1372,16 @@ ET_FIREWALL_STATUS EtQueryFirewallStatus(
     if (!processItem)
         return FirewallUnknownStatus;
 
-    if (!processItem->FileNameWin32)
+    if (PhIsNullOrEmptyString(processItem->FileName))
     {
         PhDereferenceObject(processItem);
         return FirewallUnknownStatus;
     }
 
     result = FirewallUnknownStatus;
+    imageFileName = PhGetFileName(processItem->FileName);
 
-    if (imageFileNameBStr = SysAllocStringLen(processItem->FileNameWin32->Buffer, (ULONG)processItem->FileNameWin32->Length / sizeof(WCHAR)))
+    if (imageFileNameBStr = SysAllocStringLen(imageFileName->Buffer, (ULONG)imageFileName->Length / sizeof(WCHAR)))
     {
         localAddressBStr = NULL;
 
@@ -1395,10 +1394,10 @@ ET_FIREWALL_STATUS EtQueryFirewallStatus(
         if (SUCCEEDED(INetFwMgr_IsPortAllowed(
             manager,
             imageFileNameBStr,
-            (NetworkItem->ProtocolType & PH_IPV6_NETWORK_TYPE) ? NET_FW_IP_VERSION_V6 : NET_FW_IP_VERSION_V4,
+            (NetworkItem->ProtocolType & PH_NETWORK_TYPE_IPV6) ? NET_FW_IP_VERSION_V6 : NET_FW_IP_VERSION_V4,
             NetworkItem->LocalEndpoint.Port,
             localAddressBStr,
-            (NetworkItem->ProtocolType & PH_UDP_PROTOCOL_TYPE) ? NET_FW_IP_PROTOCOL_UDP : NET_FW_IP_PROTOCOL_TCP,
+            (NetworkItem->ProtocolType & PH_PROTOCOL_TYPE_UDP) ? NET_FW_IP_PROTOCOL_UDP : NET_FW_IP_PROTOCOL_TCP,
             &allowed,
             &restricted
             )))
@@ -1425,6 +1424,7 @@ ET_FIREWALL_STATUS EtQueryFirewallStatus(
         SysFreeString(imageFileNameBStr);
     }
 
+    PhDereferenceObject(imageFileName);
     PhDereferenceObject(processItem);
 
     return result;

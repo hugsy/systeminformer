@@ -13,9 +13,7 @@
 #include <settings.h>
 #include <winsta.h>
 
-#define SIP(String, Integer) { (String), (PVOID)(Integer) }
-
-static PH_KEY_VALUE_PAIR VirtualKeyPairs[] =
+static CONST PH_KEY_VALUE_PAIR VirtualKeyPairs[] =
 {
     SIP(L"0", '0'),
     SIP(L"1", '1'),
@@ -159,6 +157,8 @@ INT_PTR CALLBACK PhpSessionShadowDlgProc(
             Button_SetCheck(GetDlgItem(hwndDlg, IDC_SHIFT), hotkey.Y & KBDSHIFT);
             Button_SetCheck(GetDlgItem(hwndDlg, IDC_CTRL), hotkey.Y & KBDCTRL);
             Button_SetCheck(GetDlgItem(hwndDlg, IDC_ALT), hotkey.Y & KBDALT);
+
+            PhInitializeWindowTheme(hwndDlg, PhEnableThemeSupport);
         }
         break;
     case WM_DESTROY:
@@ -218,7 +218,7 @@ INT_PTR CALLBACK PhpSessionShadowDlgProc(
                     }
                     else
                     {
-                        PhShowError(hwndDlg, L"%s", L"The computer name is too long.");
+                        PhShowStatus(hwndDlg, L"Unable to remote control the session", 0, ERROR_DS_NAME_TOO_LONG);
                     }
                 }
                 break;

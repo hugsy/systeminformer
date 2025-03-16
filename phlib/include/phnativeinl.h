@@ -126,13 +126,13 @@ PhGetProcessSessionId(
  *
  * \param ProcessHandle A handle to a process. The handle must have
  * PROCESS_QUERY_LIMITED_INFORMATION access.
- * \param IsWow64 A variable which receives a boolean indicating whether the process is 32-bit.
+ * \param IsWow64Process A variable which receives a boolean indicating whether the process is 32-bit.
  */
 FORCEINLINE
 NTSTATUS
 PhGetProcessIsWow64(
     _In_ HANDLE ProcessHandle,
-    _Out_ PBOOLEAN IsWow64
+    _Out_ PBOOLEAN IsWow64Process
     )
 {
     NTSTATUS status;
@@ -148,7 +148,7 @@ PhGetProcessIsWow64(
 
     if (NT_SUCCESS(status))
     {
-        *IsWow64 = !!wow64;
+        *IsWow64Process = !!wow64;
     }
 
     return status;
@@ -274,6 +274,13 @@ PhGetProcessErrorMode(
         );
 }
 
+/**
+ * Sets the error mode for a process.
+ *
+ * \param ProcessHandle A handle to a process. The handle must have PROCESS_SET_INFORMATION access.
+ * \param ErrorMode The error mode to set for the process.
+ * \return STATUS_SUCCESS if the error mode was successfully set, otherwise an appropriate NTSTATUS error code.
+ */
 FORCEINLINE
 NTSTATUS
 PhSetProcessErrorMode(
@@ -292,8 +299,7 @@ PhSetProcessErrorMode(
 /**
  * Gets a process' no-execute status.
  *
- * \param ProcessHandle A handle to a process. The handle must have PROCESS_QUERY_INFORMATION
- * access.
+ * \param ProcessHandle A handle to a process. The handle must have PROCESS_QUERY_INFORMATION access.
  * \param ExecuteFlags A variable which receives the no-execute flags.
  */
 FORCEINLINE
@@ -474,6 +480,38 @@ PhGetProcessConsoleHostProcessId(
     if (NT_SUCCESS(status))
     {
         *ConsoleHostProcessId = (HANDLE)consoleHostProcess;
+    }
+
+    return status;
+}
+
+FORCEINLINE
+NTSTATUS
+PhGetProcessConsoleHostProcess(
+    _In_ HANDLE ProcessHandle,
+    _Out_ PHANDLE ConsoleHostProcessId,
+    _Out_opt_ PBOOLEAN ConsoleApplication
+    )
+{
+    NTSTATUS status;
+    ULONG_PTR consoleHostProcess;
+
+    status = NtQueryInformationProcess(
+        ProcessHandle,
+        ProcessConsoleHostProcess,
+        &consoleHostProcess,
+        sizeof(ULONG_PTR),
+        NULL
+        );
+
+    if (NT_SUCCESS(status))
+    {
+        *ConsoleHostProcessId = (HANDLE)(consoleHostProcess & ~3);
+    }
+
+    if (ConsoleApplication)
+    {
+        *ConsoleApplication = !!(ULONG_PTR)(consoleHostProcess & 2);
     }
 
     return status;
@@ -775,7 +813,7 @@ PhGetProcessMitigationPolicyInformation(
 
 FORCEINLINE
 NTSTATUS
-PhGetProcesNetworkIoCounters(
+PhGetProcessNetworkIoCounters(
     _In_ HANDLE ProcessHandle,
     _Out_ PPROCESS_NETWORK_COUNTERS NetworkIoCounters
     )
@@ -791,54 +829,28 @@ PhGetProcesNetworkIoCounters(
 
 FORCEINLINE
 NTSTATUS
-PhGetProcessPowerThrottlingState(
-    _In_ HANDLE ProcessHandle,
-    _Out_ PPOWER_THROTTLING_PROCESS_STATE PowerThrottlingState
-    )
-{
-    NTSTATUS status;
-    POWER_THROTTLING_PROCESS_STATE powerThrottlingState;
-
-    memset(&powerThrottlingState, 0, sizeof(POWER_THROTTLING_PROCESS_STATE));
-    powerThrottlingState.Version = POWER_THROTTLING_PROCESS_CURRENT_VERSION;
-
-    status = NtQueryInformationProcess(
-        ProcessHandle,
-        ProcessPowerThrottlingState,
-        &powerThrottlingState,
-        sizeof(POWER_THROTTLING_PROCESS_STATE),
-        NULL
-        );
-
-    if (NT_SUCCESS(status))
-    {
-        *PowerThrottlingState = powerThrottlingState;
-    }
-
-    return status;
-}
-
-FORCEINLINE
-NTSTATUS
 PhGetThreadPowerThrottlingState(
     _In_ HANDLE ThreadHandle,
     _Out_ PPOWER_THROTTLING_THREAD_STATE PowerThrottlingState
     )
 {
     NTSTATUS status;
-    POWER_THROTTLING_THREAD_STATE powerThrottlingState = { .Version = POWER_THROTTLING_THREAD_CURRENT_VERSION };
+    POWER_THROTTLING_THREAD_STATE threadPowerThrottlingState;
+
+    memset(&threadPowerThrottlingState, 0, sizeof(POWER_THROTTLING_THREAD_STATE));
+    threadPowerThrottlingState.Version = POWER_THROTTLING_THREAD_CURRENT_VERSION;
 
     status = NtQueryInformationThread(
         ThreadHandle,
         ThreadPowerThrottlingState,
-        &powerThrottlingState,
-        sizeof(powerThrottlingState),
+        &threadPowerThrottlingState,
+        sizeof(POWER_THROTTLING_THREAD_STATE),
         NULL
-    );
+        );
 
     if (NT_SUCCESS(status))
     {
-        *PowerThrottlingState = powerThrottlingState;
+        *PowerThrottlingState = threadPowerThrottlingState;
     }
 
     return status;
@@ -1185,6 +1197,32 @@ PhSetThreadBreakOnTermination(
 
 FORCEINLINE
 NTSTATUS
+PhGetThreadContainerId(
+    _In_ HANDLE ThreadHandle,
+    _In_ PGUID ContainerId
+    )
+{
+    NTSTATUS status;
+    GUID threadContainerId;
+
+    status = NtQueryInformationThread(
+        ThreadHandle,
+        ThreadContainerId,
+        &threadContainerId,
+        sizeof(ULONG),
+        NULL
+        );
+
+    if (NT_SUCCESS(status))
+    {
+        memcpy(ContainerId, &threadContainerId, sizeof(GUID));
+    }
+
+    return status;
+}
+
+FORCEINLINE
+NTSTATUS
 PhGetThreadIsIoPending(
     _In_ HANDLE ThreadHandle,
     _Out_ PBOOLEAN IsIoPending
@@ -1313,12 +1351,32 @@ PhGetThreadGroupAffinity(
     _Out_ PGROUP_AFFINITY GroupAffinity
     )
 {
+    ULONG returnLength;
+
     return NtQueryInformationThread(
         ThreadHandle,
         ThreadGroupInformation,
         GroupAffinity,
         sizeof(GROUP_AFFINITY),
-        NULL
+        &returnLength
+        );
+}
+
+FORCEINLINE
+NTSTATUS
+PhGetThreadIndexInformation(
+    _In_ HANDLE ThreadHandle,
+    _Out_ PTHREAD_INDEX_INFORMATION ThreadIndex
+    )
+{
+    ULONG returnLength;
+
+    return NtQueryInformationThread(
+        ThreadHandle,
+        ThreadIndexInformation,
+        ThreadIndex,
+        sizeof(THREAD_INDEX_INFORMATION),
+        &returnLength
         );
 }
 
@@ -1953,8 +2011,13 @@ PhGetProcessIsCetEnabled(
 
     if (NT_SUCCESS(status))
     {
+#if !defined(NTDDI_WIN10_CO) || (NTDDI_VERSION < NTDDI_WIN10_CO)
+        *IsCetEnabled = _bittest((const PLONG)&policyInfo.ControlFlowGuardPolicy.Flags, 0);
+        *IsCetStrictModeEnabled = _bittest((const PLONG)&policyInfo.ControlFlowGuardPolicy.Flags, 4);
+#else
         *IsCetEnabled = !!policyInfo.UserShadowStackPolicy.EnableUserShadowStack;
         *IsCetStrictModeEnabled = !!policyInfo.UserShadowStackPolicy.EnableUserShadowStackStrictMode;
+#endif
     }
 
     return status;
@@ -1964,7 +2027,7 @@ FORCEINLINE
 NTSTATUS
 NTAPI
 PhGetSystemHypervisorSharedPageInformation(
-    _Out_ PPVOID HypervisorSharedUserVa
+    _Out_ PSYSTEM_HYPERVISOR_USER_SHARED_DATA* HypervisorSharedUserVa
     )
 {
     NTSTATUS status;
@@ -2075,10 +2138,21 @@ PhGetSystemUptime(
 FORCEINLINE
 NTSTATUS PhWaitForSingleObject(
     _In_ HANDLE Handle,
-    _In_opt_ PLARGE_INTEGER Timeout
+    _In_opt_ ULONG Timeout
     )
 {
-    return NtWaitForSingleObject(Handle, FALSE, Timeout);
+    if (Timeout)
+    {
+        LARGE_INTEGER timeout;
+
+        timeout.QuadPart = -(LONGLONG)UInt32x32To64(Timeout, PH_TIMEOUT_MS);
+
+        return NtWaitForSingleObject(Handle, FALSE, &timeout);
+    }
+    else
+    {
+        return NtWaitForSingleObject(Handle, FALSE, NULL);
+    }
 }
 
 #endif

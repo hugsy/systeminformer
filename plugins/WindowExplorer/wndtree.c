@@ -44,6 +44,12 @@ BOOLEAN WeWindowTreeFilterCallback(
     if (!context->SearchMatchHandle)
         return TRUE;
 
+    if (windowNode->WindowHandle)
+    {
+        if (PhSearchControlMatchPointer(context->SearchMatchHandle, windowNode->WindowHandle))
+            return TRUE;
+    }
+
     if (windowNode->WindowClass[0])
     {
         if (PhSearchControlMatchLongHintZ(context->SearchMatchHandle, windowNode->WindowClass))
@@ -100,9 +106,8 @@ VOID WeInitializeWindowTree(
     Context->TreeNewHandle = TreeNewHandle;
     PhSetControlTheme(TreeNewHandle, L"explorer");
 
-    TreeNew_SetCallback(TreeNewHandle, WepWindowTreeNewCallback, Context);
-
     TreeNew_SetRedraw(TreeNewHandle, FALSE);
+    TreeNew_SetCallback(TreeNewHandle, WepWindowTreeNewCallback, Context);
 
     PhAddTreeNewColumn(TreeNewHandle, WEWNTLC_CLASS, TRUE, L"Class", 180, PH_ALIGN_LEFT, 0, 0);
     PhAddTreeNewColumn(TreeNewHandle, WEWNTLC_HANDLE, TRUE, L"Handle", 70, PH_ALIGN_LEFT, 1, 0);
@@ -110,25 +115,15 @@ VOID WeInitializeWindowTree(
     PhAddTreeNewColumn(TreeNewHandle, WEWNTLC_THREAD, TRUE, L"Thread", 150, PH_ALIGN_LEFT, 3, 0);
     PhAddTreeNewColumn(TreeNewHandle, WEWNTLC_MODULE, TRUE, L"Module", 150, PH_ALIGN_LEFT, 4, 0);
 
-    TreeNew_SetRedraw(TreeNewHandle, TRUE);
+    PhInitializeTreeNewFilterSupport(&Context->FilterSupport, Context->TreeNewHandle, Context->NodeList);
+    Context->TreeFilterEntry = PhAddTreeNewFilter(&Context->FilterSupport, WeWindowTreeFilterCallback, Context);
+
     TreeNew_SetTriState(TreeNewHandle, TRUE);
-    TreeNew_SetSort(TreeNewHandle, WEWNTLC_CLASS, NoSortOrder);
+    TreeNew_SetRedraw(TreeNewHandle, TRUE);
 
     settings = PhGetStringSetting(SETTING_NAME_WINDOW_TREE_LIST_COLUMNS);
     PhCmLoadSettings(TreeNewHandle, &settings->sr);
     PhDereferenceObject(settings);
-
-    PhInitializeTreeNewFilterSupport(
-        &Context->FilterSupport,
-        Context->TreeNewHandle,
-        Context->NodeList
-        );
-
-    Context->TreeFilterEntry = PhAddTreeNewFilter(
-        &Context->FilterSupport,
-        WeWindowTreeFilterCallback,
-        Context
-        );
 }
 
 VOID WeDeleteWindowTree(
@@ -139,7 +134,6 @@ VOID WeDeleteWindowTree(
     ULONG i;
 
     PhRemoveTreeNewFilter(&Context->FilterSupport, Context->TreeFilterEntry);
-
     PhDeleteTreeNewFilterSupport(&Context->FilterSupport);
 
     settings = PhCmSaveSettings(Context->TreeNewHandle);
@@ -181,11 +175,15 @@ VOID WeInitializeWindowTreeImageList(
                 200,
                 200
                 );
-            PhImageListSetBkColor(Context->NodeImageList, CLR_NONE);
-            TreeNew_SetImageList(Context->TreeNewHandle, Context->NodeImageList);
 
-            PhGetStockApplicationIcon(&iconSmall, NULL);
-            PhImageListAddIcon(Context->NodeImageList, iconSmall);
+            if (Context->NodeImageList)
+            {
+                PhImageListSetBkColor(Context->NodeImageList, CLR_NONE);
+                TreeNew_SetImageList(Context->TreeNewHandle, Context->NodeImageList);
+
+                PhGetStockApplicationIcon(&iconSmall, NULL);
+                PhImageListAddIcon(Context->NodeImageList, iconSmall);
+            }
         }
         else
         {
@@ -243,12 +241,12 @@ PWE_WINDOW_NODE WeAddWindowNode(
         }
         else
         {
-            ULONG processId = 0;
+            CLIENT_ID clientId;
             PPH_PROCESS_ITEM processItem;
 
-            GetWindowThreadProcessId(WindowHandle, &processId);
+            PhGetWindowClientId(WindowHandle, &clientId);
 
-            if (processId && (processItem = PhReferenceProcessItem(UlongToHandle(processId))))
+            if (clientId.UniqueProcess && (processItem = PhReferenceProcessItem(clientId.UniqueProcess)))
             {
                 windowNode->ProcessItem = processItem;
 
@@ -510,7 +508,11 @@ BOOLEAN NTAPI WepWindowTreeNewCallback(
         return TRUE;
     case TreeNewSortChanged:
         {
-            TreeNew_GetSort(hwnd, &context->TreeNewSortColumn, &context->TreeNewSortOrder);
+            PPH_TREENEW_SORT_CHANGED_EVENT sorting = Parameter1;
+
+            context->TreeNewSortColumn = sorting->SortColumn;
+            context->TreeNewSortOrder = sorting->SortOrder;
+
             // Force a rebuild to sort the items.
             TreeNew_NodesStructured(hwnd);
         }
@@ -524,10 +526,6 @@ BOOLEAN NTAPI WepWindowTreeNewCallback(
             case 'C':
                 if (GetKeyState(VK_CONTROL) < 0)
                     SendMessage(context->ParentWindowHandle, WM_COMMAND, ID_WINDOW_COPY, 0);
-                break;
-            case 'A':
-                if (GetKeyState(VK_CONTROL) < 0)
-                    TreeNew_SelectRange(context->TreeNewHandle, 0, -1);
                 break;
             }
         }
@@ -708,8 +706,5 @@ VOID WeSelectAndEnsureVisibleWindowNodes(
     if (needsRestructure)
         TreeNew_NodesStructured(Context->TreeNewHandle);
 
-    TreeNew_SetFocusNode(Context->TreeNewHandle, &leader->Node);
-    TreeNew_SetMarkNode(Context->TreeNewHandle, &leader->Node);
-    TreeNew_EnsureVisible(Context->TreeNewHandle, &leader->Node);
-    TreeNew_InvalidateNode(Context->TreeNewHandle, &leader->Node);
+    TreeNew_FocusMarkSelectNode(Context->TreeNewHandle, &leader->Node);
 }

@@ -308,6 +308,16 @@ static NTSTATUS NTAPI PhpThreadPermissionsOpenThread(
     return STATUS_UNSUCCESSFUL;
 }
 
+static NTSTATUS PhpThreadPermissionsCloseHandle(
+    _In_opt_ HANDLE Handle,
+    _In_opt_ BOOLEAN Release,
+    _In_opt_ PVOID Context
+    )
+{
+    if (Handle) NtClose(Handle);
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS NTAPI PhpOpenThreadTokenObject(
     _Out_ PHANDLE Handle,
     _In_ ACCESS_MASK DesiredAccess,
@@ -318,6 +328,16 @@ static NTSTATUS NTAPI PhpOpenThreadTokenObject(
         return PhOpenThreadToken((HANDLE)Context, DesiredAccess, TRUE, Handle);
 
     return STATUS_UNSUCCESSFUL;
+}
+
+static NTSTATUS PhpCloseThreadTokenObject(
+    _In_opt_ HANDLE Handle,
+    _In_opt_ BOOLEAN Release,
+    _In_opt_ PVOID Context
+    )
+{
+    if (Handle) NtClose(Handle);
+    return STATUS_SUCCESS;
 }
 
 BOOLEAN PhpThreadTreeFilterCallback(
@@ -428,15 +448,15 @@ BOOLEAN PhpThreadTreeFilterCallback(
             return TRUE;
     }
 
-    if (!PhIsNullOrEmptyString(threadNode->ThreadItem->StartAddressString))
+    if (!PhIsNullOrEmptyString(threadNode->ThreadItem->StartAddressWin32String))
     {
-        if (PhSearchControlMatch(Context->SearchMatchHandle, &threadNode->ThreadItem->StartAddressString->sr))
+        if (PhSearchControlMatch(Context->SearchMatchHandle, &threadNode->ThreadItem->StartAddressWin32String->sr))
             return TRUE;
     }
 
-    if (!PhIsNullOrEmptyString(threadNode->ThreadItem->StartAddressFileName))
+    if (!PhIsNullOrEmptyString(threadNode->ThreadItem->StartAddressWin32FileName))
     {
-        if (PhSearchControlMatch(Context->SearchMatchHandle, &threadNode->ThreadItem->StartAddressFileName->sr))
+        if (PhSearchControlMatch(Context->SearchMatchHandle, &threadNode->ThreadItem->StartAddressWin32FileName->sr))
             return TRUE;
     }
 
@@ -598,6 +618,100 @@ VOID PhpPopulateTableWithProcessThreadNodes(
     }
 
     (*Index)++;
+}
+
+VOID PhExpandAllThreadNodes(
+    _In_ PPH_THREADS_CONTEXT ThreadsContext,
+    _In_ BOOLEAN Expand
+    )
+{
+    BOOLEAN needsRestructure = FALSE;
+
+    for (ULONG i = 0; i < ThreadsContext->ListContext.NodeList->Count; i++)
+    {
+        PPH_THREAD_NODE node = ThreadsContext->ListContext.NodeList->Items[i];
+
+        if (node->Node.Expanded != Expand)
+        {
+            node->Node.Expanded = Expand;
+            needsRestructure = TRUE;
+        }
+    }
+
+    if (needsRestructure)
+        TreeNew_NodesStructured(ThreadsContext->TreeNewHandle);
+}
+
+VOID PhInvalidateAllThreadNodes(
+    _In_ PPH_THREADS_CONTEXT ThreadsContext
+    )
+{
+    for (ULONG i = 0; i < ThreadsContext->ListContext.NodeList->Count; i++)
+    {
+        PPH_THREAD_NODE node = ThreadsContext->ListContext.NodeList->Items[i];
+
+        memset(node->TextCache, 0, sizeof(PH_STRINGREF) * PH_THREAD_TREELIST_COLUMN_MAXIMUM);
+        PhInvalidateTreeNewNode(&node->Node, TN_CACHE_COLOR);
+        node->ValidMask = 0;
+    }
+
+    InvalidateRect(ThreadsContext->TreeNewHandle, NULL, FALSE);
+}
+
+static VOID PhDeselectAllThreadNodes(
+    _In_ PPH_THREAD_LIST_CONTEXT Context
+    )
+{
+    TreeNew_DeselectRange(Context->TreeNewHandle, 0, -1);
+}
+
+VOID PhSelectAndEnsureVisibleThreadNodes(
+    _In_ PPH_THREADS_CONTEXT ThreadsContext,
+    _In_ PPH_THREAD_NODE *ThreadNodes,
+    _In_ ULONG NumberOfThreadNodes
+    )
+{
+    ULONG i;
+    PPH_THREAD_NODE leader = NULL;
+    PPH_THREAD_NODE node;
+    BOOLEAN needsRestructure = FALSE;
+
+    PhDeselectAllThreadNodes(&ThreadsContext->ListContext);
+
+    for (i = 0; i < NumberOfThreadNodes; i++)
+    {
+        if (ThreadNodes[i]->Node.Visible)
+        {
+            leader = ThreadNodes[i];
+            break;
+        }
+    }
+
+    if (!leader)
+        return;
+
+    for (i = 0; i < NumberOfThreadNodes; i++)
+    {
+        node = ThreadNodes[i];
+
+        if (!node->Node.Visible)
+            continue;
+
+        node->Node.Selected = TRUE;
+    }
+
+    if (needsRestructure)
+        TreeNew_NodesStructured(ThreadsContext->TreeNewHandle);
+
+    TreeNew_FocusMarkSelectNode(ThreadsContext->TreeNewHandle, &leader->Node);
+}
+
+VOID PhSelectAndEnsureVisibleThreadNode(
+    _In_ PPH_THREADS_CONTEXT ThreadsContext,
+    _In_ PPH_THREAD_NODE ThreadNode
+    )
+{
+    PhSelectAndEnsureVisibleThreadNodes(ThreadsContext, &ThreadNode, 1);
 }
 
 PPH_LIST PhpGetProcessThreadTreeListLines(
@@ -1206,7 +1320,7 @@ INT_PTR CALLBACK PhpProcessThreadsDlgProc(
                             PhaFormatString(L"Thread %u", HandleToUlong(threadItem->ThreadId))->Buffer,
                             L"Thread",
                             PhpThreadPermissionsOpenThread,
-                            NULL,
+                            PhpThreadPermissionsCloseHandle,
                             threadItem->ThreadId
                             );
                     }
@@ -1229,6 +1343,7 @@ INT_PTR CALLBACK PhpProcessThreadsDlgProc(
                             PhShowTokenProperties(
                                 hwndDlg,
                                 PhpOpenThreadTokenObject,
+                                PhpCloseThreadTokenObject,
                                 threadsContext->Provider->ProcessId,
                                 (PVOID)threadHandle,
                                 NULL
@@ -1397,12 +1512,12 @@ INT_PTR CALLBACK PhpProcessThreadsDlgProc(
             //    {
             //        PPH_THREAD_ITEM threadItem = PhGetSelectedThreadItem(&threadsContext->ListContext);
             //
-            //        if (threadItem && threadItem->StartAddressFileName)
+            //        if (threadItem && threadItem->StartAddressWin32FileName)
             //        {
             //            PhShellExecuteUserString(
             //                hwndDlg,
             //                L"FileBrowseExecutable",
-            //                threadItem->StartAddressFileName->Buffer,
+            //                threadItem->StartAddressWin32FileName->Buffer,
             //                FALSE,
             //                L"Make sure the Explorer executable file is present."
             //                );
@@ -1558,10 +1673,7 @@ INT_PTR CALLBACK PhpProcessThreadsDlgProc(
                 {
                     if (threadNode->Node.Visible)
                     {
-                        TreeNew_SetFocusNode(threadsContext->TreeNewHandle, &threadNode->Node);
-                        TreeNew_SetMarkNode(threadsContext->TreeNewHandle, &threadNode->Node);
-                        TreeNew_SelectRange(threadsContext->TreeNewHandle, threadNode->Node.Index, threadNode->Node.Index);
-                        TreeNew_EnsureVisible(threadsContext->TreeNewHandle, &threadNode->Node);
+                        TreeNew_FocusMarkSelectNode(threadsContext->TreeNewHandle, &threadNode->Node);
                     }
                 }
 

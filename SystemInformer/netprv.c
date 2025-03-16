@@ -402,7 +402,7 @@ PPHP_RESOLVE_CACHE_ITEM PhpLookupResolveCacheItem(
 //    socklen_t length;
 //    PPH_STRING hostName;
 //
-//    if (Address->Type == PH_IPV4_NETWORK_TYPE)
+//    if (Address->Type == PH_NETWORK_TYPE_IPV4)
 //    {
 //        ipv4Address.sin_family = AF_INET;
 //        ipv4Address.sin_port = 0;
@@ -410,7 +410,7 @@ PPHP_RESOLVE_CACHE_ITEM PhpLookupResolveCacheItem(
 //        address = (PSOCKADDR)&ipv4Address;
 //        length = sizeof(ipv4Address);
 //    }
-//    else if (Address->Type == PH_IPV6_NETWORK_TYPE)
+//    else if (Address->Type == PH_NETWORK_TYPE_IPV6)
 //    {
 //        ipv6Address.sin6_family = AF_INET6;
 //        ipv6Address.sin6_port = 0;
@@ -471,9 +471,9 @@ PPH_STRING PhpGetDnsReverseNameFromAddress(
 
     switch (Address->Type)
     {
-    case PH_IPV4_NETWORK_TYPE:
+    case PH_NETWORK_TYPE_IPV4:
         {
-            static PH_STRINGREF reverseLookupDomainNameSr = PH_STRINGREF_INIT(DNS_IP4_REVERSE_DOMAIN_STRING);
+            static CONST PH_STRINGREF reverseLookupDomainNameSr = PH_STRINGREF_INIT(DNS_IP4_REVERSE_DOMAIN_STRING);
             PH_FORMAT format[9];
             SIZE_T returnLength;
             WCHAR reverseNameBuffer[IP4_REVERSE_DOMAIN_STRING_LENGTH];
@@ -509,19 +509,19 @@ PPH_STRING PhpGetDnsReverseNameFromAddress(
             }
         }
         break;
-    case PH_IPV6_NETWORK_TYPE:
+    case PH_NETWORK_TYPE_IPV6:
         {
-            static PH_STRINGREF reverseLookupDomainNameSr = PH_STRINGREF_INIT(DNS_IP6_REVERSE_DOMAIN_STRING);
+            static CONST PH_STRINGREF reverseLookupDomainNameSr = PH_STRINGREF_INIT(DNS_IP6_REVERSE_DOMAIN_STRING);
             PH_STRING_BUILDER stringBuilder;
 
             // DNS_MAX_IP6_REVERSE_NAME_LENGTH
             PhInitializeStringBuilder(&stringBuilder, IP6_REVERSE_DOMAIN_STRING_LENGTH);
 
-            for (INT i = sizeof(IN6_ADDR) - 1; i >= 0; i--)
+            for (LONG i = sizeof(IN6_ADDR) - 1; i >= 0; i--)
             {
                 PH_FORMAT format[4];
                 SIZE_T returnLength;
-                WCHAR reverseNameBuffer[PH_INT32_STR_LEN_1];
+                WCHAR reverseNameBuffer[PH_INT64_STR_LEN_1];
 
                 PhInitFormatX(&format[0], Address->In6Addr.s6_addr[i] & 0xF);
                 PhInitFormatC(&format[1], L'.');
@@ -570,12 +570,12 @@ PPH_STRING PhGetHostNameFromAddressEx(
 {
     BOOLEAN dnsLocalQuery = FALSE;
     PPH_STRING dnsHostNameString = NULL;
-    PPH_STRING dnsReverseNameString;
+    PPH_STRING dnsReverseNameString = NULL;
     PDNS_RECORD dnsRecordList;
 
     switch (Address->Type)
     {
-    case PH_IPV4_NETWORK_TYPE:
+    case PH_NETWORK_TYPE_IPV4:
         {
             if (IN4_IS_ADDR_UNSPECIFIED(&Address->InAddr))
                 return NULL;
@@ -589,9 +589,11 @@ PPH_STRING PhGetHostNameFromAddressEx(
             {
                 dnsLocalQuery = TRUE;
             }
+
+            dnsReverseNameString = PhDnsReverseLookupNameFromAddress(PH_NETWORK_TYPE_IPV4, &Address->InAddr);
         }
         break;
-    case PH_IPV6_NETWORK_TYPE:
+    case PH_NETWORK_TYPE_IPV6:
         {
             if (IN6_IS_ADDR_UNSPECIFIED(&Address->In6Addr))
                 return NULL;
@@ -603,11 +605,13 @@ PPH_STRING PhGetHostNameFromAddressEx(
             {
                 dnsLocalQuery = TRUE;
             }
+
+            dnsReverseNameString = PhDnsReverseLookupNameFromAddress(PH_NETWORK_TYPE_IPV6, &Address->In6Addr);
         }
         break;
     }
 
-    if (!(dnsReverseNameString = PhpGetDnsReverseNameFromAddress(Address)))
+    if (PhIsNullOrEmptyString(dnsReverseNameString))
         return NULL;
 
     if (PhEnableNetworkResolveDoHSupport && !dnsLocalQuery)
@@ -832,9 +836,6 @@ VOID PhNetworkItemInvalidateHostname(
     _In_ PPH_NETWORK_ITEM NetworkItem
     )
 {
-    if (!FlagOn(PhNetworkProviderFlagsMask, PH_NETWORK_PROVIDER_FLAG_HOSTNAME))
-        return;
-
     if (NetworkItem->LocalHostString)
     {
         PhDereferenceObject(NetworkItem->LocalHostString);
@@ -899,7 +900,7 @@ VOID PhFlushNetworkQueryData(
             data->NetworkItem->LocalHostnameResolved = TRUE;
         }
 
-        data->NetworkItem->JustResolved = TRUE;
+        InterlockedExchange(&data->NetworkItem->JustResolved, TRUE);
 
         PhDereferenceObject(data->NetworkItem);
         PhFree(data);
@@ -1024,7 +1025,7 @@ VOID PhNetworkProviderUpdate(
 
             switch (networkItem->LocalEndpoint.Address.Type)
             {
-            case PH_IPV4_NETWORK_TYPE:
+            case PH_NETWORK_TYPE_IPV4:
                 {
                     WCHAR localAddressString[IP4_ADDRESS_STRING_LENGTH];
                     ULONG localAddressStringLength = RTL_NUMBER_OF(localAddressString);
@@ -1043,7 +1044,7 @@ VOID PhNetworkProviderUpdate(
                     }
                 }
                 break;
-            case PH_IPV6_NETWORK_TYPE:
+            case PH_NETWORK_TYPE_IPV6:
                 {
                     WCHAR localAddressString[IP6_ADDRESS_STRING_LENGTH];
                     ULONG localAddressStringLength = RTL_NUMBER_OF(localAddressString);
@@ -1063,7 +1064,7 @@ VOID PhNetworkProviderUpdate(
                     }
                 }
                 break;
-            case PH_HV_NETWORK_TYPE:
+            case PH_NETWORK_TYPE_HYPERV:
                 {
                     networkItem->LocalAddressString = PhFormatGuid(
                         &networkItem->LocalEndpoint.Address.HvAddr
@@ -1074,7 +1075,7 @@ VOID PhNetworkProviderUpdate(
 
             switch (networkItem->RemoteEndpoint.Address.Type)
             {
-            case PH_IPV4_NETWORK_TYPE:
+            case PH_NETWORK_TYPE_IPV4:
                 {
                     if (!PhIsNullIpAddress(&networkItem->RemoteEndpoint.Address))
                     {
@@ -1096,7 +1097,7 @@ VOID PhNetworkProviderUpdate(
                     }
                 }
                 break;
-            case PH_IPV6_NETWORK_TYPE:
+            case PH_NETWORK_TYPE_IPV6:
                 {
                     if (!PhIsNullIpAddress(&networkItem->RemoteEndpoint.Address))
                     {
@@ -1119,7 +1120,7 @@ VOID PhNetworkProviderUpdate(
                     }
                 }
                 break;
-            case PH_HV_NETWORK_TYPE:
+            case PH_NETWORK_TYPE_HYPERV:
                 {
                     networkItem->RemoteAddressString = PhFormatGuid(
                         &networkItem->RemoteEndpoint.Address.HvAddr
@@ -1244,7 +1245,7 @@ VOID PhNetworkProviderUpdate(
 
     PhFree(connections);
 
-    PhInvokeCallback(PhGetGeneralCallback(GeneralCallbackNetworkProviderUpdatedEvent), NULL);
+    PhInvokeCallback(PhGetGeneralCallback(GeneralCallbackNetworkProviderUpdatedEvent), UlongToPtr(runCount));
     runCount++;
 }
 
@@ -1613,14 +1614,14 @@ BOOLEAN PhGetNetworkConnections(
     {
         for (i = 0; i < tcp4Table->dwNumEntries; i++)
         {
-            connections[index].ProtocolType = PH_TCP4_NETWORK_PROTOCOL;
+            connections[index].ProtocolType = PH_NETWORK_PROTOCOL_TCP4;
 
-            connections[index].LocalEndpoint.Address.Type = PH_IPV4_NETWORK_TYPE;
-            connections[index].LocalEndpoint.Address.Ipv4 = tcp4Table->table[i].dwLocalAddr;
+            connections[index].LocalEndpoint.Address.Type = PH_NETWORK_TYPE_IPV4;
+            memcpy(connections[index].LocalEndpoint.Address.Ipv4, &tcp4Table->table[i].dwLocalAddr, sizeof(IN_ADDR));
             connections[index].LocalEndpoint.Port = _byteswap_ushort((USHORT)tcp4Table->table[i].dwLocalPort);
 
-            connections[index].RemoteEndpoint.Address.Type = PH_IPV4_NETWORK_TYPE;
-            connections[index].RemoteEndpoint.Address.Ipv4 = tcp4Table->table[i].dwRemoteAddr;
+            connections[index].RemoteEndpoint.Address.Type = PH_NETWORK_TYPE_IPV4;
+            memcpy(connections[index].RemoteEndpoint.Address.Ipv4, &tcp4Table->table[i].dwRemoteAddr, sizeof(IN_ADDR));
             connections[index].RemoteEndpoint.Port = _byteswap_ushort((USHORT)tcp4Table->table[i].dwRemotePort);
 
             connections[index].State = tcp4Table->table[i].dwState;
@@ -1642,13 +1643,13 @@ BOOLEAN PhGetNetworkConnections(
     {
         for (i = 0; i < tcp6Table->dwNumEntries; i++)
         {
-            connections[index].ProtocolType = PH_TCP6_NETWORK_PROTOCOL;
+            connections[index].ProtocolType = PH_NETWORK_PROTOCOL_TCP6;
 
-            connections[index].LocalEndpoint.Address.Type = PH_IPV6_NETWORK_TYPE;
+            connections[index].LocalEndpoint.Address.Type = PH_NETWORK_TYPE_IPV6;
             memcpy(connections[index].LocalEndpoint.Address.Ipv6, tcp6Table->table[i].ucLocalAddr, 16);
             connections[index].LocalEndpoint.Port = _byteswap_ushort((USHORT)tcp6Table->table[i].dwLocalPort);
 
-            connections[index].RemoteEndpoint.Address.Type = PH_IPV6_NETWORK_TYPE;
+            connections[index].RemoteEndpoint.Address.Type = PH_NETWORK_TYPE_IPV6;
             memcpy(connections[index].RemoteEndpoint.Address.Ipv6, tcp6Table->table[i].ucRemoteAddr, 16);
             connections[index].RemoteEndpoint.Port = _byteswap_ushort((USHORT)tcp6Table->table[i].dwRemotePort);
 
@@ -1674,10 +1675,10 @@ BOOLEAN PhGetNetworkConnections(
     {
         for (i = 0; i < udp4Table->dwNumEntries; i++)
         {
-            connections[index].ProtocolType = PH_UDP4_NETWORK_PROTOCOL;
+            connections[index].ProtocolType = PH_NETWORK_PROTOCOL_UDP4;
 
-            connections[index].LocalEndpoint.Address.Type = PH_IPV4_NETWORK_TYPE;
-            connections[index].LocalEndpoint.Address.Ipv4 = udp4Table->table[i].dwLocalAddr;
+            connections[index].LocalEndpoint.Address.Type = PH_NETWORK_TYPE_IPV4;
+            memcpy(connections[index].LocalEndpoint.Address.Ipv4, &udp4Table->table[i].dwLocalAddr, sizeof(IN_ADDR));
             connections[index].LocalEndpoint.Port = _byteswap_ushort((USHORT)udp4Table->table[i].dwLocalPort);
 
             connections[index].RemoteEndpoint.Address.Type = 0;
@@ -1701,10 +1702,10 @@ BOOLEAN PhGetNetworkConnections(
     {
         for (i = 0; i < udp6Table->dwNumEntries; i++)
         {
-            connections[index].ProtocolType = PH_UDP6_NETWORK_PROTOCOL;
+            connections[index].ProtocolType = PH_NETWORK_PROTOCOL_UDP6;
 
-            connections[index].LocalEndpoint.Address.Type = PH_IPV6_NETWORK_TYPE;
-            memcpy(connections[index].LocalEndpoint.Address.Ipv6, udp6Table->table[i].ucLocalAddr, 16);
+            connections[index].LocalEndpoint.Address.Type = PH_NETWORK_TYPE_IPV6;
+            memcpy(connections[index].LocalEndpoint.Address.Ipv6, udp6Table->table[i].ucLocalAddr, sizeof(IN6_ADDR));
             connections[index].LocalEndpoint.Port = _byteswap_ushort((USHORT)udp6Table->table[i].dwLocalPort);
 
             connections[index].RemoteEndpoint.Address.Type = 0;
@@ -1733,14 +1734,14 @@ BOOLEAN PhGetNetworkConnections(
         {
             for (i = 0; i < boundTcpTable->dwNumEntries; i++)
             {
-                connections[index].ProtocolType = PH_TCP4_NETWORK_PROTOCOL;
+                connections[index].ProtocolType = PH_NETWORK_PROTOCOL_TCP4;
 
-                connections[index].LocalEndpoint.Address.Type = PH_IPV4_NETWORK_TYPE;
-                connections[index].LocalEndpoint.Address.Ipv4 = boundTcpTable->table[i].dwLocalAddr;
+                connections[index].LocalEndpoint.Address.Type = PH_NETWORK_TYPE_IPV4;
+                memcpy(connections[index].LocalEndpoint.Address.Ipv4, &boundTcpTable->table[i].dwLocalAddr, sizeof(IN_ADDR));
                 connections[index].LocalEndpoint.Port = _byteswap_ushort((USHORT)boundTcpTable->table[i].dwLocalPort);
 
-                connections[index].RemoteEndpoint.Address.Type = PH_IPV4_NETWORK_TYPE;
-                connections[index].RemoteEndpoint.Address.Ipv4 = boundTcpTable->table[i].dwRemoteAddr;
+                connections[index].RemoteEndpoint.Address.Type = PH_NETWORK_TYPE_IPV4;
+                memcpy(connections[index].RemoteEndpoint.Address.Ipv4, &boundTcpTable->table[i].dwRemoteAddr, sizeof(IN_ADDR));
                 connections[index].RemoteEndpoint.Port = _byteswap_ushort((USHORT)boundTcpTable->table[i].dwRemotePort);
 
                 connections[index].State = boundTcpTable->table[i].dwState;
@@ -1756,14 +1757,14 @@ BOOLEAN PhGetNetworkConnections(
         {
             for (i = 0; i < boundTcp6Table->dwNumEntries; i++)
             {
-                connections[index].ProtocolType = PH_TCP6_NETWORK_PROTOCOL;
+                connections[index].ProtocolType = PH_NETWORK_PROTOCOL_TCP6;
 
-                connections[index].LocalEndpoint.Address.Type = PH_IPV6_NETWORK_TYPE;
-                memcpy(connections[index].LocalEndpoint.Address.Ipv6, boundTcp6Table->table[i].LocalAddr.s6_addr, 16);
+                connections[index].LocalEndpoint.Address.Type = PH_NETWORK_TYPE_IPV6;
+                memcpy(connections[index].LocalEndpoint.Address.Ipv6, boundTcp6Table->table[i].LocalAddr.s6_addr, sizeof(IN6_ADDR));
                 connections[index].LocalEndpoint.Port = _byteswap_ushort((USHORT)boundTcp6Table->table[i].dwLocalPort);
 
-                connections[index].RemoteEndpoint.Address.Type = PH_IPV6_NETWORK_TYPE;
-                memcpy(connections[index].RemoteEndpoint.Address.Ipv6, boundTcp6Table->table[i].RemoteAddr.s6_addr, 16);
+                connections[index].RemoteEndpoint.Address.Type = PH_NETWORK_TYPE_IPV6;
+                memcpy(connections[index].RemoteEndpoint.Address.Ipv6, boundTcp6Table->table[i].RemoteAddr.s6_addr, sizeof(IN6_ADDR));
                 connections[index].RemoteEndpoint.Port = _byteswap_ushort((USHORT)boundTcp6Table->table[i].dwRemotePort);
 
                 connections[index].State = boundTcp6Table->table[i].State;
@@ -1784,21 +1785,23 @@ BOOLEAN PhGetNetworkConnections(
     {
         for (i = 0; i < hvListeners->Count; i++)
         {
-            connections[index].ProtocolType = PH_HV_NETWORK_PROTOCOL;
+            connections[index].ProtocolType = PH_NETWORK_PROTOCOL_HYPERV;
 
-            connections[index].LocalEndpoint.Address.Type = PH_HV_NETWORK_TYPE;
+            connections[index].LocalEndpoint.Address.Type = PH_NETWORK_TYPE_HYPERV;
             connections[index].LocalEndpoint.Address.HvAddr = hvListeners->Listener[i].ServiceId;
 
             if (hvListeners->Listener[i].Port <= 0x7FFFFFFF) // valid port range
                 connections[index].LocalEndpoint.Port = hvListeners->Listener[i].Port;
+            else
+                connections[index].LocalEndpoint.Port = 0;
 
-            connections[index].RemoteEndpoint.Address.Type = PH_HV_NETWORK_TYPE;
+            connections[index].RemoteEndpoint.Address.Type = PH_NETWORK_TYPE_HYPERV;
             connections[index].RemoteEndpoint.Address.HvAddr = hvListeners->Listener[i].VmId;
 
             connections[index].ProcessId = UlongToHandle(hvListeners->Listener[i].ProcessId);
             connections[index].CreateTime = hvListeners->Listener[i].TimeStamp;
 
-            connections[index].State = 0; // HACK
+            connections[index].State = MIB_TCP_STATE_LISTEN;
 
             index++;
         }
@@ -1810,15 +1813,17 @@ BOOLEAN PhGetNetworkConnections(
     {
         for (i = 0; i < hvConnections->Count; i++)
         {
-            connections[index].ProtocolType = PH_HV_NETWORK_PROTOCOL;
+            connections[index].ProtocolType = PH_NETWORK_PROTOCOL_HYPERV;
 
-            connections[index].LocalEndpoint.Address.Type = PH_HV_NETWORK_TYPE;
+            connections[index].LocalEndpoint.Address.Type = PH_NETWORK_TYPE_HYPERV;
             connections[index].LocalEndpoint.Address.HvAddr = hvConnections->Connection[i].ServiceId;
 
             if (hvConnections->Connection[i].Port <= 0x7FFFFFFF) // valid port range
                 connections[index].LocalEndpoint.Port = hvConnections->Connection[i].Port;
+            else
+                connections[index].LocalEndpoint.Port = 0;
 
-            connections[index].RemoteEndpoint.Address.Type = PH_HV_NETWORK_TYPE;
+            connections[index].RemoteEndpoint.Address.Type = PH_NETWORK_TYPE_HYPERV;
             connections[index].RemoteEndpoint.Address.HvAddr = hvConnections->Connection[i].VmId;
 
             connections[index].ProcessId = UlongToHandle(hvConnections->Connection[i].ProcessId);
@@ -1839,17 +1844,19 @@ BOOLEAN PhGetNetworkConnections(
     return TRUE;
 }
 
-static PH_KEY_VALUE_PAIR PhProtocolTypeStrings[] =
+static CONST PH_KEY_VALUE_PAIR PhProtocolTypeStrings[] =
 {
-    SIP(SREF(L"TCP"), PH_TCP4_NETWORK_PROTOCOL),
-    SIP(SREF(L"TCP6"), PH_TCP6_NETWORK_PROTOCOL),
-    SIP(SREF(L"UDP"), PH_UDP4_NETWORK_PROTOCOL),
-    SIP(SREF(L"UDP6"), PH_UDP6_NETWORK_PROTOCOL),
-    SIP(SREF(L"HYPERV"), PH_HV_NETWORK_PROTOCOL),
+    SIP(SREF(L"Unknown"), 0),
+    SIP(SREF(L"TCP"), PH_NETWORK_PROTOCOL_TCP4),
+    SIP(SREF(L"TCP6"), PH_NETWORK_PROTOCOL_TCP6),
+    SIP(SREF(L"UDP"), PH_NETWORK_PROTOCOL_UDP4),
+    SIP(SREF(L"UDP6"), PH_NETWORK_PROTOCOL_UDP6),
+    SIP(SREF(L"HYPERV"), PH_NETWORK_PROTOCOL_HYPERV),
 };
 
-static PH_KEY_VALUE_PAIR PhTcpStateStrings[] =
+static CONST PH_KEY_VALUE_PAIR PhTcpStateStrings[] =
 {
+    SIP(SREF(L"Unknown"), 0),
     SIP(SREF(L"Closed"), MIB_TCP_STATE_CLOSED),
     SIP(SREF(L"Listen"), MIB_TCP_STATE_LISTEN),
     SIP(SREF(L"SYN sent"), MIB_TCP_STATE_SYN_SENT),
@@ -1865,42 +1872,58 @@ static PH_KEY_VALUE_PAIR PhTcpStateStrings[] =
     SIP(SREF(L"Bound"), MIB_TCP_STATE_RESERVED),
 };
 
-PPH_STRINGREF PhGetProtocolTypeName(
+PCPH_STRINGREF PhGetProtocolTypeName(
     _In_ ULONG ProtocolType
     )
 {
-    static PH_STRINGREF unknown = PH_STRINGREF_INIT(L"Unknown");
-    PPH_STRINGREF string;
+    PCPH_STRINGREF string;
 
-    if (PhFindStringSiKeyValuePairs(
+    if (PhFindStringRefSiKeyValuePairs(
         PhProtocolTypeStrings,
         sizeof(PhProtocolTypeStrings),
         ProtocolType,
-        (PWSTR*)&string
+        &string
         ))
     {
         return string;
     }
 
-    return &unknown;
+    return PhProtocolTypeStrings[0].Key;
 }
 
-PPH_STRINGREF PhGetTcpStateName(
+PCPH_STRINGREF PhGetTcpStateName(
     _In_ ULONG State
     )
 {
-    static PH_STRINGREF unknown = PH_STRINGREF_INIT(L"Unknown");
-    PPH_STRINGREF string;
-
-    if (PhFindStringSiKeyValuePairs(
-        PhTcpStateStrings,
-        sizeof(PhTcpStateStrings),
-        State,
-        (PWSTR*)&string
-        ))
+    switch (State)
     {
-        return string;
+    case MIB_TCP_STATE_CLOSED:
+    case MIB_TCP_STATE_LISTEN:
+    case MIB_TCP_STATE_SYN_SENT:
+    case MIB_TCP_STATE_SYN_RCVD:
+    case MIB_TCP_STATE_ESTAB:
+    case MIB_TCP_STATE_FIN_WAIT1:
+    case MIB_TCP_STATE_FIN_WAIT2:
+    case MIB_TCP_STATE_CLOSE_WAIT:
+    case MIB_TCP_STATE_CLOSING:
+    case MIB_TCP_STATE_LAST_ACK:
+    case MIB_TCP_STATE_TIME_WAIT:
+    case MIB_TCP_STATE_DELETE_TCB:
+        return PhTcpStateStrings[State].Key;
+    case MIB_TCP_STATE_RESERVED:
+        return PhTcpStateStrings[13].Key;
     }
 
-    return &unknown;
+    // TODO: We can't index the string from MIB_TCP_STATE_RESERVED (dmex)
+    //if (PhIndexStringRefSiKeyValuePairs(
+    //    PhTcpStateStrings,
+    //    sizeof(PhTcpStateStrings),
+    //    State,
+    //    &string
+    //    ))
+    //{
+    //    return string;
+    //}
+
+    return PhTcpStateStrings[0].Key;
 }

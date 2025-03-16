@@ -70,8 +70,8 @@ BOOLEAN FwTabPageCallback(
                 WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | TN_STYLE_ICONS | TN_STYLE_DOUBLE_BUFFERED | thinRows | treelistBorder | treelistCustomColors,
                 0,
                 0,
-                3,
-                3,
+                0,
+                0,
                 Parameter2,
                 NULL,
                 PluginInstance->DllBase,
@@ -253,9 +253,9 @@ VOID InitializeFwTreeList(
 
     InitializeFwTreeListDpi(FwTreeNewHandle);
 
-    PhSetControlTheme(FwTreeNewHandle, L"explorer");
-    TreeNew_SetCallback(FwTreeNewHandle, FwTreeNewCallback, NULL);
+    PhSetControlTheme(FwTreeNewHandle, !PhGetIntegerSetting(L"EnableThemeSupport") ? L"explorer" : L"DarkMode_Explorer");
     TreeNew_SetRedraw(FwTreeNewHandle, FALSE);
+    TreeNew_SetCallback(FwTreeNewHandle, FwTreeNewCallback, NULL);
 
     PhAddTreeNewColumnEx2(FwTreeNewHandle, FW_COLUMN_NAME, TRUE, L"Name", 140, PH_ALIGN_LEFT, FW_COLUMN_NAME, 0, TN_COLUMN_FLAG_CUSTOMDRAW);
     PhAddTreeNewColumn(FwTreeNewHandle, FW_COLUMN_ACTION, TRUE, L"Action", 70, PH_ALIGN_LEFT, FW_COLUMN_ACTION, 0);
@@ -282,13 +282,13 @@ VOID InitializeFwTreeList(
     PhAddTreeNewColumn(FwTreeNewHandle, FW_COLUMN_LOCALSERVICENAME, FALSE, L"Local port service", 80, PH_ALIGN_LEFT, FW_COLUMN_LOCALSERVICENAME, 0);
     PhAddTreeNewColumn(FwTreeNewHandle, FW_COLUMN_REMOTESERVICENAME, FALSE, L"Remote port service", 80, PH_ALIGN_LEFT, FW_COLUMN_REMOTESERVICENAME, 0);
 
-    TreeNew_SetRedraw(FwTreeNewHandle, TRUE);
+    PhInitializeTreeNewFilterSupport(&EtFwFilterSupport, TreeNewHandle, FwNodeList);
+
     TreeNew_SetSort(FwTreeNewHandle, FW_COLUMN_TIMESTAMP, NoSortOrder);
     TreeNew_SetTriState(FwTreeNewHandle, TRUE);
+    TreeNew_SetRedraw(FwTreeNewHandle, TRUE);
 
     LoadSettingsFwTreeList(TreeNewHandle);
-
-    PhInitializeTreeNewFilterSupport(&EtFwFilterSupport, TreeNewHandle, FwNodeList);
 
     if (EtFwToolStatusInterface)
     {
@@ -311,6 +311,33 @@ VOID InitializeFwTreeListDpi(
     FwTreeRightMarginPadding = PhGetSystemMetrics(SM_CXSMICON, dpiValue) + PhGetDpi(TNP_ICON_RIGHT_PADDING, dpiValue);
 }
 
+VOID LoadSettingsFwTreeUpdateMask(
+    VOID
+    )
+{
+    PH_TREENEW_COLUMN column;
+    BOOLEAN current;
+
+    current = BooleanFlagOn(EtFwFlagsMask, FW_PROVIDER_FLAG_HOSTNAME);
+
+    if (
+        (TreeNew_GetColumn(FwTreeNewHandle, FW_COLUMN_LOCALHOSTNAME, &column) && column.Visible) ||
+        (TreeNew_GetColumn(FwTreeNewHandle, FW_COLUMN_REMOTEHOSTNAME, &column) && column.Visible)
+        )
+    {
+        SetFlag(EtFwFlagsMask, FW_PROVIDER_FLAG_HOSTNAME);
+    }
+    else
+    {
+        ClearFlag(EtFwFlagsMask, FW_PROVIDER_FLAG_HOSTNAME);
+    }
+
+    if (ProcessesUpdatedCount != 0 && current != BooleanFlagOn(EtFwFlagsMask, FW_PROVIDER_FLAG_HOSTNAME))
+    {
+        EtFwInvalidateAllFwNodesHostnames();
+    }
+}
+
 VOID LoadSettingsFwTreeList(
     _In_ HWND TreeNewHandle
     )
@@ -324,6 +351,17 @@ VOID LoadSettingsFwTreeList(
 
     sortSettings = PhGetIntegerPairSetting(SETTING_NAME_FW_TREE_LIST_SORT);
     TreeNew_SetSort(TreeNewHandle, (ULONG)sortSettings.X, (PH_SORT_ORDER)sortSettings.Y);
+
+    if (PhGetIntegerSetting(L"EnableInstantTooltips"))
+    {
+        SendMessage(TreeNew_GetTooltips(TreeNewHandle), TTM_SETDELAYTIME, TTDT_INITIAL, 0);
+    }
+    else
+    {
+        SendMessage(TreeNew_GetTooltips(TreeNewHandle), TTM_SETDELAYTIME, TTDT_AUTOPOP, MAXSHORT);
+    }
+
+    LoadSettingsFwTreeUpdateMask();
 }
 
 VOID SaveSettingsFwTreeList(
@@ -542,32 +580,36 @@ BEGIN_SORT_FUNCTION(LocalAddress)
 {
     SOCKADDR_IN6 localAddress1;
     SOCKADDR_IN6 localAddress2;
+    SCOPE_ID scopeId1;
+    SCOPE_ID scopeId2;
 
     memset(&localAddress1, 0, sizeof(SOCKADDR_IN6)); // memset for zero padding (dmex)
     memset(&localAddress2, 0, sizeof(SOCKADDR_IN6));
 
-    if (node1->LocalEndpoint.Address.Type == PH_IPV4_NETWORK_TYPE)
+    if (node1->LocalEndpoint.Address.Type == PH_NETWORK_TYPE_IPV4)
     {
         localAddress1.sin6_family = AF_INET6;
         IN6_SET_ADDR_V4COMPAT(&localAddress1.sin6_addr, &node1->LocalEndpoint.Address.InAddr);
         IN4_UNCANONICALIZE_SCOPE_ID(&node1->LocalEndpoint.Address.InAddr, &localAddress1.sin6_scope_struct);
         //IN6ADDR_SETV4MAPPED(&localAddress1, &node1->LocalEndpoint.Address.InAddr, (SCOPE_ID)SCOPEID_UNSPECIFIED_INIT, 0);
     }
-    else if (node1->LocalEndpoint.Address.Type == PH_IPV6_NETWORK_TYPE)
+    else if (node1->LocalEndpoint.Address.Type == PH_NETWORK_TYPE_IPV6)
     {
-        IN6ADDR_SETSOCKADDR(&localAddress1, &node1->LocalEndpoint.Address.In6Addr, (SCOPE_ID){ .Value = node1->ScopeId }, 0);
+        scopeId1.Value = node1->ScopeId;
+        IN6ADDR_SETSOCKADDR(&localAddress1, &node1->LocalEndpoint.Address.In6Addr, scopeId1, 0);
     }
 
-    if (node2->LocalEndpoint.Address.Type == PH_IPV4_NETWORK_TYPE)
+    if (node2->LocalEndpoint.Address.Type == PH_NETWORK_TYPE_IPV4)
     {
         localAddress2.sin6_family = AF_INET6;
         IN6_SET_ADDR_V4COMPAT(&localAddress2.sin6_addr, &node2->LocalEndpoint.Address.InAddr);
         IN4_UNCANONICALIZE_SCOPE_ID(&node2->LocalEndpoint.Address.InAddr, &localAddress2.sin6_scope_struct);
         //IN6ADDR_SETV4MAPPED(&localAddress2, &node2->LocalEndpoint.Address.InAddr, (SCOPE_ID)SCOPEID_UNSPECIFIED_INIT, 0);
     }
-    else if (node2->LocalEndpoint.Address.Type == PH_IPV6_NETWORK_TYPE)
+    else if (node2->LocalEndpoint.Address.Type == PH_NETWORK_TYPE_IPV6)
     {
-        IN6ADDR_SETSOCKADDR(&localAddress2, &node2->LocalEndpoint.Address.In6Addr, (SCOPE_ID){ .Value = node2->ScopeId }, 0);
+        scopeId2.Value = node2->ScopeId;
+        IN6ADDR_SETSOCKADDR(&localAddress2, &node2->LocalEndpoint.Address.In6Addr, scopeId2, 0);
     }
 
     sortResult = memcmp(&localAddress1, &localAddress2, sizeof(SOCKADDR_IN6));
@@ -590,32 +632,36 @@ BEGIN_SORT_FUNCTION(RemoteAddress)
 {
     SOCKADDR_IN6 remoteAddress1;
     SOCKADDR_IN6 remoteAddress2;
+    SCOPE_ID scopeId1;
+    SCOPE_ID scopeId2;
 
     memset(&remoteAddress1, 0, sizeof(SOCKADDR_IN6)); // memset for zero padding (dmex)
     memset(&remoteAddress2, 0, sizeof(SOCKADDR_IN6));
 
-    if (node1->RemoteEndpoint.Address.Type == PH_IPV4_NETWORK_TYPE)
+    if (node1->RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV4)
     {
         remoteAddress1.sin6_family = AF_INET6;
         IN6_SET_ADDR_V4COMPAT(&remoteAddress1.sin6_addr, &node1->RemoteEndpoint.Address.InAddr);
         IN4_UNCANONICALIZE_SCOPE_ID(&node1->RemoteEndpoint.Address.InAddr, &remoteAddress1.sin6_scope_struct);
         //IN6ADDR_SETV4MAPPED(&remoteAddress1, &node1->RemoteEndpoint.Address.InAddr, (SCOPE_ID)SCOPEID_UNSPECIFIED_INIT, 0);
     }
-    else if (node1->RemoteEndpoint.Address.Type & PH_IPV6_NETWORK_TYPE)
+    else if (node1->RemoteEndpoint.Address.Type & PH_NETWORK_TYPE_IPV6)
     {
-        IN6ADDR_SETSOCKADDR(&remoteAddress1, &node1->RemoteEndpoint.Address.In6Addr, (SCOPE_ID){ .Value = node1->ScopeId }, 0);
+        scopeId1.Value = node1->ScopeId;
+        IN6ADDR_SETSOCKADDR(&remoteAddress1, &node1->RemoteEndpoint.Address.In6Addr, scopeId1, 0);
     }
 
-    if (node2->RemoteEndpoint.Address.Type == PH_IPV4_NETWORK_TYPE)
+    if (node2->RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV4)
     {
         remoteAddress2.sin6_family = AF_INET6;
         IN6_SET_ADDR_V4COMPAT(&remoteAddress2.sin6_addr, &node2->RemoteEndpoint.Address.InAddr);
         IN4_UNCANONICALIZE_SCOPE_ID(&node2->RemoteEndpoint.Address.InAddr, &remoteAddress2.sin6_scope_struct);
         //IN6ADDR_SETV4MAPPED(&remoteAddress2, &node2->RemoteEndpoint.Address.InAddr, (SCOPE_ID)SCOPEID_UNSPECIFIED_INIT, 0);
     }
-    else if (node2->RemoteEndpoint.Address.Type & PH_IPV6_NETWORK_TYPE)
+    else if (node2->RemoteEndpoint.Address.Type & PH_NETWORK_TYPE_IPV6)
     {
-        IN6ADDR_SETSOCKADDR(&remoteAddress2, &node2->RemoteEndpoint.Address.In6Addr, (SCOPE_ID){ .Value = node2->ScopeId }, 0);
+        scopeId2.Value = node2->ScopeId;
+        IN6ADDR_SETSOCKADDR(&remoteAddress2, &node2->RemoteEndpoint.Address.In6Addr, scopeId2, 0);
     }
 
     sortResult = memcmp(&remoteAddress1, &remoteAddress2, sizeof(SOCKADDR_IN6));
@@ -916,7 +962,7 @@ BOOLEAN NTAPI FwTreeNewCallback(
                 {
                     switch (node->LocalEndpoint.Address.Type)
                     {
-                    case PH_IPV4_NETWORK_TYPE:
+                    case PH_NETWORK_TYPE_IPV4:
                         {
                             ULONG ipv4AddressStringLength = RTL_NUMBER_OF(node->LocalAddressString);
 
@@ -932,7 +978,7 @@ BOOLEAN NTAPI FwTreeNewCallback(
                             }
                         }
                         break;
-                    case PH_IPV6_NETWORK_TYPE:
+                    case PH_NETWORK_TYPE_IPV6:
                         {
                             ULONG ipv6AddressStringLength = RTL_NUMBER_OF(node->LocalAddressString);
 
@@ -993,7 +1039,7 @@ BOOLEAN NTAPI FwTreeNewCallback(
                 {
                     switch (node->RemoteEndpoint.Address.Type)
                     {
-                    case PH_IPV4_NETWORK_TYPE:
+                    case PH_NETWORK_TYPE_IPV4:
                         {
                             ULONG ipv4AddressStringLength = RTL_NUMBER_OF(node->RemoteAddressString);
 
@@ -1009,7 +1055,7 @@ BOOLEAN NTAPI FwTreeNewCallback(
                             }
                         }
                         break;
-                    case PH_IPV6_NETWORK_TYPE:
+                    case PH_NETWORK_TYPE_IPV6:
                         {
                             ULONG ipv6AddressStringLength = RTL_NUMBER_OF(node->RemoteAddressString);
 
@@ -1330,7 +1376,11 @@ BOOLEAN NTAPI FwTreeNewCallback(
         return TRUE;
     case TreeNewSortChanged:
         {
-            TreeNew_GetSort(WindowHandle, &FwTreeNewSortColumn, &FwTreeNewSortOrder);
+            PPH_TREENEW_SORT_CHANGED_EVENT sorting = Parameter1;
+
+            FwTreeNewSortColumn = sorting->SortColumn;
+            FwTreeNewSortOrder = sorting->SortOrder;
+
             TreeNew_NodesStructured(WindowHandle);
         }
         return TRUE;
@@ -1343,9 +1393,6 @@ BOOLEAN NTAPI FwTreeNewCallback(
             case 'C':
                 if (GetKeyState(VK_CONTROL) < 0)
                     EtFwHandleFwCommand(WindowHandle, ID_DISK_COPY);
-                break;
-            case 'A':
-                TreeNew_SelectRange(FwTreeNewHandle, 0, -1);
                 break;
             }
         }
@@ -1368,6 +1415,15 @@ BOOLEAN NTAPI FwTreeNewCallback(
                 data.MouseEvent->ScreenLocation.x,
                 data.MouseEvent->ScreenLocation.y
                 );
+
+            if (data.Selection)
+            {
+                if (data.Selection->Id == PH_TN_COLUMN_MENU_HIDE_COLUMN_ID ||
+                    data.Selection->Id == PH_TN_COLUMN_MENU_CHOOSE_COLUMNS_ID)
+                {
+                    LoadSettingsFwTreeUpdateMask();
+                }
+            }
 
             PhHandleTreeNewColumnMenu(&data);
             PhDeleteTreeNewColumnMenu(&data);
@@ -1526,10 +1582,54 @@ VOID EtFwSelectAndEnsureVisibleFwNode(
     if (!FwNode->Node.Visible)
         return;
 
-    TreeNew_SetFocusNode(FwTreeNewHandle, &FwNode->Node);
-    TreeNew_SetMarkNode(FwTreeNewHandle, &FwNode->Node);
-    TreeNew_SelectRange(FwTreeNewHandle, FwNode->Node.Index, FwNode->Node.Index);
-    TreeNew_EnsureVisible(FwTreeNewHandle, &FwNode->Node);
+    TreeNew_FocusMarkSelectNode(FwTreeNewHandle, &FwNode->Node);
+}
+
+VOID EtFwInvalidateAllFwNodes(
+    VOID
+    )
+{
+    for (ULONG i = 0; i < FwNodeList->Count; i++)
+    {
+        PFW_EVENT_ITEM node = FwNodeList->Items[i];
+
+        memset(node->TextCache, 0, sizeof(PH_STRINGREF) * (FW_COLUMN_MAXIMUM - 2));
+        PhInvalidateTreeNewNode(&node->Node, TN_CACHE_COLOR);
+    }
+
+    InvalidateRect(FwTreeNewHandle, NULL, FALSE);
+}
+
+VOID EtFwInvalidateAllFwNodesHostnames(
+    VOID
+    )
+{
+    EtFwFlushResolveCache();
+
+    for (ULONG i = 0; i < FwNodeList->Count; i++)
+    {
+        PFW_EVENT_ITEM node = FwNodeList->Items[i];
+
+        memset(node->TextCache, 0, sizeof(PH_STRINGREF) * (FW_COLUMN_MAXIMUM - 2));
+        PhInvalidateTreeNewNode(&node->Node, TN_CACHE_COLOR);
+
+        EtFwQueryHostnameForEntry(node);
+    }
+
+    //PPH_NETWORK_ITEM* networkItems;
+    //ULONG numberOfNetworkItems;
+    //
+    //PhEnumNetworkItems(&networkItems, &numberOfNetworkItems);
+    //
+    //for (ULONG j = 0; j < numberOfNetworkItems; j++)
+    //{
+    //    PPH_NETWORK_ITEM networkItem = networkItems[j];
+    //
+    //    networkItem->InvalidateHostname = TRUE;
+    //}
+    //
+    //PhDereferenceObjects(networkItems, numberOfNetworkItems);
+    //PhFree(networkItems);
 }
 
 VOID EtFwCopyFwList(
@@ -1728,7 +1828,7 @@ VOID ShowFwContextMenu(
             PhSetDisabledEMenuItem(traceMenu);
             PhSetDisabledEMenuItem(whoisMenu);
         }
-        else if (fwItems[0]->RemoteEndpoint.Address.Type == PH_IPV4_NETWORK_TYPE)
+        else if (fwItems[0]->RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV4)
         {
             if (
                 IN4_IS_ADDR_UNSPECIFIED(&fwItems[0]->RemoteEndpoint.Address.InAddr) ||
@@ -1745,7 +1845,7 @@ VOID ShowFwContextMenu(
                 PhSetDisabledEMenuItem(whoisMenu);
             }
         }
-        else if (fwItems[0]->RemoteEndpoint.Address.Type == PH_IPV6_NETWORK_TYPE)
+        else if (fwItems[0]->RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV6)
         {
             if (
                 IN6_IS_ADDR_UNSPECIFIED(&fwItems[0]->RemoteEndpoint.Address.In6Addr) ||
@@ -1809,7 +1909,7 @@ VOID NTAPI FwItemsUpdatedHandler(
     _In_opt_ PVOID Context
     )
 {
-    ProcessHacker_Invoke(OnFwItemsUpdated, FwRunCount);
+    SystemInformer_Invoke(OnFwItemsUpdated, UlongToPtr(FwRunCount));
 }
 
 VOID NTAPI OnFwItemsUpdated(

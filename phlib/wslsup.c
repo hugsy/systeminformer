@@ -30,7 +30,7 @@ BOOLEAN PhGetWslDistributionFromPath(
     _Out_opt_ PPH_STRING *LxssFileName
     )
 {
-    static PH_STRINGREF lxssKeyPath = PH_STRINGREF_INIT(L"Software\\Microsoft\\Windows\\CurrentVersion\\Lxss");
+    static CONST PH_STRINGREF lxssKeyPath = PH_STRINGREF_INIT(L"Software\\Microsoft\\Windows\\CurrentVersion\\Lxss");
     PPH_STRING lxssDistributionName = NULL;
     PPH_STRING lxssDistroPath = NULL;
     PPH_STRING lxssFileName = NULL;
@@ -194,6 +194,166 @@ CleanupExit:
     if (win32FileName) PhDereferenceObject(win32FileName);
 
     return success;
+}
+
+_Success_(return)
+BOOLEAN PhWslQueryDistroProcessCommandLine(
+    _In_ PPH_STRINGREF FileName,
+    _In_ ULONG LxssProcessId,
+    _Out_ PPH_STRING* Result
+    )
+{
+    PPH_STRING lxssCommandResult = NULL;
+    PPH_STRING lxssCommandLine = NULL;
+    PPH_STRING lxssDistroName = NULL;
+    PH_FORMAT format[5];
+
+    if (!PhGetWslDistributionFromPath(FileName, &lxssDistroName, NULL, NULL))
+        return FALSE;
+
+    PhInitFormatS(&format[0], L"\\Device\\Mup\\wsl.localhost\\");
+    PhInitFormatSR(&format[1], lxssDistroName->sr);
+    PhInitFormatS(&format[2], L"\\proc\\");
+    PhInitFormatIU(&format[3], LxssProcessId);
+    PhInitFormatS(&format[4], L"\\cmdline");
+
+    if (lxssCommandLine = PhFormat(format, RTL_NUMBER_OF(format), 0x100))
+    {
+        NTSTATUS status;
+        HANDLE fileHandle;
+
+        status = PhCreateFile(
+            &fileHandle,
+            &lxssCommandLine->sr,
+            FILE_GENERIC_READ,
+            FILE_ATTRIBUTE_NORMAL,
+            FILE_SHARE_READ | FILE_SHARE_DELETE,
+            FILE_OPEN,
+            FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
+            );
+
+        if (NT_SUCCESS(status))
+        {
+            lxssCommandResult = PhGetFileText(fileHandle, TRUE);
+            NtClose(fileHandle);
+        }
+        else if (status == STATUS_ACCESS_DENIED)
+        {
+            PPH_STRING lxssRootCommandLine;
+            PPH_STRING lxssRootCommandResult;
+
+            // Note: The WSL P9 Multiple UNC Provider (MUP) doesn't allow administrators to read /proc unless the distro wsl.conf default user is root.
+            // Changing the default user to root fixes permission issues when accessing files from Windows but results in everything owned by root and inaccessible from WSL.
+            // We can workaround the issue by creating a root process using 'wsl.exe -u root' and pipe the /proc content via standard output.
+            // This is significantly slower (very slow) but works, and avoids hard requirements on user preferences and distro configuration.
+
+            PhInitFormatS(&format[0], L"cat /proc/");
+            PhInitFormatIU(&format[1], LxssProcessId);
+            PhInitFormatS(&format[2], L"/cmdline");
+
+            if (lxssRootCommandLine = PhFormat(format, 3, 0x100))
+            {
+                if (PhCreateProcessLxss(lxssDistroName, lxssRootCommandLine, &lxssRootCommandResult))
+                {
+                    lxssCommandResult = lxssRootCommandResult;
+                }
+
+                PhDereferenceObject(lxssRootCommandLine);
+            }
+        }
+
+        PhDereferenceObject(lxssCommandLine);
+    }
+
+    PhDereferenceObject(lxssDistroName);
+
+    if (lxssCommandResult)
+    {
+        *Result = lxssCommandResult;
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+_Success_(return)
+BOOLEAN PhWslQueryDistroProcessEnvironment(
+    _In_ PPH_STRINGREF FileName,
+    _In_ ULONG LxssProcessId,
+    _Out_ PPH_STRING* Result
+    )
+{
+    PPH_STRING lxssCommandResult = NULL;
+    PPH_STRING lxssCommandLine = NULL;
+    PPH_STRING lxssDistroName = NULL;
+    PH_FORMAT format[5];
+
+    if (!PhGetWslDistributionFromPath(FileName, &lxssDistroName, NULL, NULL))
+        return FALSE;
+
+    PhInitFormatS(&format[0], L"\\Device\\Mup\\wsl.localhost\\");
+    PhInitFormatSR(&format[1], lxssDistroName->sr);
+    PhInitFormatS(&format[2], L"\\proc\\");
+    PhInitFormatIU(&format[3], LxssProcessId);
+    PhInitFormatS(&format[4], L"\\environ");
+
+    if (lxssCommandLine = PhFormat(format, RTL_NUMBER_OF(format), 0x100))
+    {
+        NTSTATUS status;
+        HANDLE fileHandle;
+
+        status = PhCreateFile(
+            &fileHandle,
+            &lxssCommandLine->sr,
+            FILE_GENERIC_READ,
+            FILE_ATTRIBUTE_NORMAL,
+            FILE_SHARE_READ | FILE_SHARE_DELETE,
+            FILE_OPEN,
+            FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
+            );
+
+        if (NT_SUCCESS(status))
+        {
+            lxssCommandResult = PhGetFileText(fileHandle, TRUE);
+            NtClose(fileHandle);
+        }
+        else if (status == STATUS_ACCESS_DENIED)
+        {
+            PPH_STRING lxssRootCommandLine;
+            PPH_STRING lxssRootCommandResult;
+
+            // Note: The WSL P9 Multiple UNC Provider (MUP) doesn't allow administrators to read /proc unless the distro wsl.conf default user is root.
+            // Changing the default user to root fixes permission issues when accessing files from Windows but results in everything owned by root and inaccessible from WSL.
+            // We can workaround the issue by creating a root process using 'wsl.exe -u root' and pipe the /proc content via standard output.
+            // This is significantly slower (very slow) but works, and avoids hard requirements on user preferences and distro configuration.
+
+            PhInitFormatS(&format[0], L"cat /proc/");
+            PhInitFormatIU(&format[1], LxssProcessId);
+            PhInitFormatS(&format[2], L"/environ");
+
+            if (lxssRootCommandLine = PhFormat(format, 3, 0x100))
+            {
+                if (PhCreateProcessLxss(lxssDistroName, lxssRootCommandLine, &lxssRootCommandResult))
+                {
+                    lxssCommandResult = lxssRootCommandResult;
+                }
+
+                PhDereferenceObject(lxssRootCommandLine);
+            }
+        }
+
+        PhDereferenceObject(lxssCommandLine);
+    }
+
+    PhDereferenceObject(lxssDistroName);
+
+    if (lxssCommandResult)
+    {
+        *Result = lxssCommandResult;
+        return TRUE;
+    }
+
+    return FALSE;
 }
 
 _Success_(return)
@@ -394,6 +554,7 @@ BOOLEAN PhCreateProcessLxss(
     _Out_ PPH_STRING *Result
     )
 {
+    static SECURITY_ATTRIBUTES securityAttributes = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
     BOOLEAN result = FALSE;
     PPH_STRING lxssOutputString = NULL;
     PPH_STRING lxssCommandLine;
@@ -401,6 +562,8 @@ BOOLEAN PhCreateProcessLxss(
     HANDLE processHandle;
     HANDLE outputReadHandle = NULL, outputWriteHandle = NULL;
     HANDLE inputReadHandle = NULL, inputWriteHandle = NULL;
+    PPROC_THREAD_ATTRIBUTE_LIST attributeList = NULL;
+    HANDLE handleList[2];
     STARTUPINFOEX startupInfo = { 0 };
     PROCESS_BASIC_INFORMATION basicInfo;
     PH_FORMAT format[4];
@@ -430,8 +593,8 @@ BOOLEAN PhCreateProcessLxss(
     if (!NT_SUCCESS(PhCreatePipeEx(
         &outputReadHandle,
         &outputWriteHandle,
-        TRUE,
-        NULL
+        NULL,
+        &securityAttributes
         )))
     {
         goto CleanupExit;
@@ -440,8 +603,24 @@ BOOLEAN PhCreateProcessLxss(
     if (!NT_SUCCESS(PhCreatePipeEx(
         &inputReadHandle,
         &inputWriteHandle,
-        TRUE,
+        &securityAttributes,
         NULL
+        )))
+    {
+        goto CleanupExit;
+    }
+
+    if (!NT_SUCCESS(PhInitializeProcThreadAttributeList(&attributeList, 1)))
+        goto CleanupExit;
+
+    handleList[0] = inputReadHandle;
+    handleList[1] = outputWriteHandle;
+
+    if (!NT_SUCCESS(PhUpdateProcThreadAttribute(
+        attributeList,
+        PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+        handleList,
+        sizeof(handleList)
         )))
     {
         goto CleanupExit;
@@ -454,26 +633,14 @@ BOOLEAN PhCreateProcessLxss(
     startupInfo.StartupInfo.hStdInput = inputReadHandle;
     startupInfo.StartupInfo.hStdOutput = outputWriteHandle;
     startupInfo.StartupInfo.hStdError = outputWriteHandle;
-
-    if (!NT_SUCCESS(PhInitializeProcThreadAttributeList(&startupInfo.lpAttributeList, 1)))
-        goto CleanupExit;
-
-    if (!NT_SUCCESS(PhUpdateProcThreadAttribute(
-        startupInfo.lpAttributeList,
-        PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-        &(HANDLE[2]){ inputReadHandle, outputWriteHandle },
-        sizeof(HANDLE[2])
-        )))
-    {
-        goto CleanupExit;
-    }
+    startupInfo.lpAttributeList = attributeList;
 
     if (!NT_SUCCESS(PhCreateProcessWin32Ex(
         NULL,
         PhGetString(lxssCommandLine),
         NULL,
         NULL,
-        &startupInfo.StartupInfo,
+        &startupInfo,
         PH_CREATE_PROCESS_INHERIT_HANDLES | PH_CREATE_PROCESS_NEW_CONSOLE |
         PH_CREATE_PROCESS_DEFAULT_ERROR_MODE | PH_CREATE_PROCESS_EXTENDED_STARTUPINFO,
         NULL,
@@ -520,8 +687,8 @@ CleanupExit:
     if (inputWriteHandle)
         NtClose(inputWriteHandle);
 
-    if (startupInfo.lpAttributeList)
-        PhDeleteProcThreadAttributeList(startupInfo.lpAttributeList);
+    if (attributeList)
+        PhDeleteProcThreadAttributeList(attributeList);
 
     return result;
 }

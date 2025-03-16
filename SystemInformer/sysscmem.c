@@ -18,9 +18,80 @@
 #include <symprv.h>
 #include <workqueue.h>
 #include <settings.h>
+#include <phfirmware.h>
 
 #include <procprv.h>
 #include <phsettings.h>
+
+static CONST PH_KEY_VALUE_PAIR MemoryFormFactors[] =
+{
+    SIP(L"Other", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_OTHER),
+    SIP(L"Unknown", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_UNKNOWN),
+    SIP(L"SIMM", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_SIMM),
+    SIP(L"SIP", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_SIP),
+    SIP(L"Chip", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_CHIP),
+    SIP(L"DIP", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_DIP),
+    SIP(L"ZIP", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_ZIP),
+    SIP(L"Proprietary", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_PROPRIETARY),
+    SIP(L"DIMM", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_DIMM),
+    SIP(L"TOSP", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_TSOP),
+    SIP(L"Row of chips", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_ROW_OF_CHIPS),
+    SIP(L"RIMM", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_RIMM),
+    SIP(L"SODIM", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_SODIMM),
+    SIP(L"SRIMM", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_SRIMM),
+    SIP(L"FB-DIMM", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_FB_DIMM),
+    SIP(L"Die", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_DIE),
+    SIP(L"CAMM", SMBIOS_MEMORY_DEVICE_FORM_FACTOR_CAMM),
+};
+
+static CONST PH_KEY_VALUE_PAIR MemoryTypes[] =
+{
+    SIP(L"Other", SMBIOS_MEMORY_DEVICE_TYPE_OTHER),
+    SIP(L"Unknown", SMBIOS_MEMORY_DEVICE_TYPE_UNKNOWN),
+    SIP(L"DRAM", SMBIOS_MEMORY_DEVICE_TYPE_DRAM),
+    SIP(L"EDRAM", SMBIOS_MEMORY_DEVICE_TYPE_EDRAM),
+    SIP(L"VRAM", SMBIOS_MEMORY_DEVICE_TYPE_VRAM),
+    SIP(L"SRAM", SMBIOS_MEMORY_DEVICE_TYPE_SRAM),
+    SIP(L"RAM", SMBIOS_MEMORY_DEVICE_TYPE_RAM),
+    SIP(L"ROM", SMBIOS_MEMORY_DEVICE_TYPE_ROM),
+    SIP(L"FLASH", SMBIOS_MEMORY_DEVICE_TYPE_FLASH),
+    SIP(L"EEPROM", SMBIOS_MEMORY_DEVICE_TYPE_EEPROM),
+    SIP(L"FEPROM", SMBIOS_MEMORY_DEVICE_TYPE_FEPROM),
+    SIP(L"EPROM", SMBIOS_MEMORY_DEVICE_TYPE_EPROM),
+    SIP(L"CDRAM", SMBIOS_MEMORY_DEVICE_TYPE_CDRAM),
+    SIP(L"3DRAM", SMBIOS_MEMORY_DEVICE_TYPE_3DRAM),
+    SIP(L"SDRAM", SMBIOS_MEMORY_DEVICE_TYPE_SDRAM),
+    SIP(L"SGRAM", SMBIOS_MEMORY_DEVICE_TYPE_SGRAM),
+    SIP(L"RDRAM", SMBIOS_MEMORY_DEVICE_TYPE_RDRAM),
+    SIP(L"DDR", SMBIOS_MEMORY_DEVICE_TYPE_DDR),
+    SIP(L"DDR2", SMBIOS_MEMORY_DEVICE_TYPE_DDR2),
+    SIP(L"DDR2-FM-DIMM", SMBIOS_MEMORY_DEVICE_TYPE_DDR2_FB_DIMM),
+    SIP(L"DDR3", SMBIOS_MEMORY_DEVICE_TYPE_DDR3),
+    SIP(L"FBD2", SMBIOS_MEMORY_DEVICE_TYPE_FBD2),
+    SIP(L"DDR4", SMBIOS_MEMORY_DEVICE_TYPE_DDR4),
+    SIP(L"LPDDR", SMBIOS_MEMORY_DEVICE_TYPE_LPDDR),
+    SIP(L"LPDDR2", SMBIOS_MEMORY_DEVICE_TYPE_LPDDR2),
+    SIP(L"LPDDR3", SMBIOS_MEMORY_DEVICE_TYPE_LPDDR3),
+    SIP(L"LPDDR4", SMBIOS_MEMORY_DEVICE_TYPE_LPDDR4),
+    SIP(L"Local non-volatile", SMBIOS_MEMORY_DEVICE_TYPE_LOCAL_NON_VOLATILE),
+    SIP(L"HBM", SMBIOS_MEMORY_DEVICE_TYPE_HBM),
+    SIP(L"HBM2", SMBIOS_MEMORY_DEVICE_TYPE_HBM2),
+    SIP(L"DDR5", SMBIOS_MEMORY_DEVICE_TYPE_DDR5),
+    SIP(L"LPDDR5", SMBIOS_MEMORY_DEVICE_TYPE_LPDDR5),
+    SIP(L"HBM3", SMBIOS_MEMORY_DEVICE_TYPE_HBM3),
+};
+
+static CONST PH_KEY_VALUE_PAIR MemoryTechnologies[] =
+{
+    SIP(L"Other", SMBIOS_MEMORY_DEVICE_TECHNOLOGY_OTHER),
+    SIP(L"Unknown", SMBIOS_MEMORY_DEVICE_TECHNOLOGY_UNKNOWN),
+    SIP(L"DRAM", SMBIOS_MEMORY_DEVICE_TECHNOLOGY_DRAM),
+    SIP(L"NVDIMM-N", SMBIOS_MEMORY_DEVICE_TECHNOLOGY_NVDIMM_N),
+    SIP(L"NVDIMM-F", SMBIOS_MEMORY_DEVICE_TECHNOLOGY_NVDIMM_F),
+    SIP(L"NVDIMM-P", SMBIOS_MEMORY_DEVICE_TECHNOLOGY_NVDIMM_P),
+    SIP(L"Intel Optane", SMBIOS_MEMORY_DEVICE_TECHNOLOGY_INTEL_OPTANE),
+    SIP(L"MRDIMM", SMBIOS_MEMORY_DEVICE_TECHNOLOGY_MRDIMM),
+};
 
 static BOOLEAN ShowCommitInSummary;
 static PPH_SYSINFO_SECTION MemorySection;
@@ -48,6 +119,61 @@ static PSIZE_T MmSizeOfPagedPoolInBytes;
 static PSIZE_T MmMaximumNonPagedPoolInBytes;
 static ULONGLONG InstalledMemory;
 static ULONGLONG ReservedMemory;
+static ULONG MemorySlotsTotal;
+static ULONG MemorySlotsUsed;
+static UCHAR MemoryFormFactor;
+static UCHAR MemoryTechnology;
+static UCHAR MemoryType;
+static ULONG MemorySpeed;
+
+_Function_class_(PH_ENUM_SMBIOS_CALLBACK)
+BOOLEAN NTAPI PhpSipMemorySMBIOSCallback(
+    _In_ ULONG_PTR EnumHandle,
+    _In_ UCHAR MajorVersion,
+    _In_ UCHAR MinorVersion,
+    _In_ PPH_SMBIOS_ENTRY Entry,
+    _In_opt_ PVOID Context
+    )
+{
+    UCHAR formFactor = 0;
+    UCHAR memoryType = 0;
+    UCHAR technology = 0;
+    ULONG speed = 0;
+
+    if (Entry->Header.Type != SMBIOS_MEMORY_DEVICE_INFORMATION_TYPE)
+        return FALSE;
+
+    if (PH_SMBIOS_CONTAINS_FIELD(Entry, MemoryDevice, Technology))
+        technology = Entry->MemoryDevice.Technology;
+    if (PH_SMBIOS_CONTAINS_FIELD(Entry, MemoryDevice, MemoryType))
+        memoryType = Entry->MemoryDevice.MemoryType;
+    if (PH_SMBIOS_CONTAINS_FIELD(Entry, MemoryDevice, FormFactor))
+        formFactor = Entry->MemoryDevice.FormFactor;
+
+    if (PH_SMBIOS_CONTAINS_FIELD(Entry, MemoryDevice, ConfiguredSpeed))
+        speed = Entry->MemoryDevice.ConfiguredSpeed;
+    if (speed == MAXUSHORT && PH_SMBIOS_CONTAINS_FIELD(Entry, MemoryDevice, ExtendedConfiguredSpeed))
+        speed = Entry->MemoryDevice.ExtendedConfiguredSpeed;
+
+    if (!speed)
+    {
+        if (PH_SMBIOS_CONTAINS_FIELD(Entry, MemoryDevice, Speed))
+            speed = Entry->MemoryDevice.Speed;
+        if (speed == MAXUSHORT && PH_SMBIOS_CONTAINS_FIELD(Entry, MemoryDevice, ExtendedSpeed))
+            speed = Entry->MemoryDevice.ExtendedSpeed;
+    }
+
+    MemorySlotsTotal++;
+    if (Entry->MemoryDevice.Size.Value)
+        MemorySlotsUsed++;
+
+    MemoryFormFactor = max(MemoryFormFactor, formFactor);
+    MemoryType = max(MemoryType, memoryType);
+    MemoryTechnology = max(MemoryTechnology, technology);
+    MemorySpeed = max(MemorySpeed, speed);
+
+    return FALSE;
+}
 
 BOOLEAN PhSipMemorySectionCallback(
     _In_ PPH_SYSINFO_SECTION Section,
@@ -62,6 +188,12 @@ BOOLEAN PhSipMemorySectionCallback(
         {
             ShowCommitInSummary = !!PhGetIntegerSetting(L"ShowCommitInSummary");
             MemorySection = Section;
+            MemorySlotsTotal = 0;
+            MemorySlotsUsed = 0;
+            MemoryFormFactor = 0;
+            MemoryType = 0;
+            MemorySpeed = 0;
+            PhEnumSMBIOS(PhpSipMemorySMBIOSCallback, NULL);
         }
         return TRUE;
     case SysInfoDestroy:
@@ -263,7 +395,7 @@ BOOLEAN PhSipMemorySectionCallback(
             drawPanel->Title = PhCreateString(L"Memory");
 
             // %.0f%%\n%s / %s
-            PhInitFormatF(&format[0], (DOUBLE)usedPages * 100 / totalPages, 0);
+            PhInitFormatF(&format[0], ((FLOAT)usedPages / (FLOAT)totalPages) * 100, 0);
             PhInitFormatS(&format[1], L"%\n");
             PhInitFormatSizeWithPrecision(&format[2], UInt32x32To64(usedPages, PAGE_SIZE), 1);
             PhInitFormatS(&format[3], L" / ");
@@ -272,7 +404,7 @@ BOOLEAN PhSipMemorySectionCallback(
             drawPanel->SubTitle = PhFormat(format, 5, 64);
 
             // %.0f%%\n%s
-            PhInitFormatF(&format[0], (DOUBLE)usedPages * 100 / totalPages, 0);
+            PhInitFormatF(&format[0], ((FLOAT)usedPages / (FLOAT)totalPages) * 100, 0);
             PhInitFormatS(&format[1], L"%\n");
             PhInitFormatSizeWithPrecision(&format[2], UInt32x32To64(usedPages, PAGE_SIZE), 1);
 
@@ -375,7 +507,7 @@ INT_PTR CALLBACK PhSipMemoryDialogProc(
             SetWindowFont(GetDlgItem(hwndDlg, IDC_TITLE), MemorySection->Parameters->LargeFont, FALSE);
             SetWindowFont(totalPhysicalLabel, MemorySection->Parameters->MediumFont, FALSE);
 
-            if (PhGetPhysicallyInstalledSystemMemory(&InstalledMemory, &ReservedMemory))
+            if (NT_SUCCESS(PhGetPhysicallyInstalledSystemMemory(&InstalledMemory, &ReservedMemory)))
             {
                 PhSetWindowText(totalPhysicalLabel, PhaConcatStrings2(
                     PhaFormatSize(InstalledMemory, ULONG_MAX)->Buffer, L" installed")->Buffer);
@@ -431,20 +563,6 @@ INT_PTR CALLBACK PhSipMemoryDialogProc(
             PhysicalGraphState.TooltipIndex = ULONG_MAX;
             PhLayoutManagerLayout(&MemoryLayoutManager);
             PhSipLayoutMemoryGraphs(hwndDlg);
-        }
-        break;
-    case WM_NOTIFY:
-        {
-            NMHDR *header = (NMHDR *)lParam;
-
-            if (header->hwndFrom == CommitGraphHandle)
-            {
-                PhSipNotifyCommitGraph(header);
-            }
-            else if (header->hwndFrom == PhysicalGraphHandle)
-            {
-                PhSipNotifyPhysicalGraph(header);
-            }
         }
         break;
     case WM_CTLCOLORBTN:
@@ -506,20 +624,30 @@ VOID PhSipCreateMemoryGraphs(
     VOID
     )
 {
+    PH_GRAPH_CREATEPARAMS graphCreateParams;
+
+    memset(&graphCreateParams, 0, sizeof(PH_GRAPH_CREATEPARAMS));
+    graphCreateParams.Size = sizeof(PH_GRAPH_CREATEPARAMS);
+    graphCreateParams.Callback = PhSipNotifyCommitGraph;
+
     CommitGraphHandle = CreateWindow(
         PH_GRAPH_CLASSNAME,
         NULL,
         WS_VISIBLE | WS_CHILD | WS_BORDER,
         0,
         0,
-        3,
-        3,
+        0,
+        0,
         MemoryDialog,
         NULL,
         PhInstanceHandle,
-        NULL
+        &graphCreateParams
         );
     Graph_SetTooltip(CommitGraphHandle, TRUE);
+
+    memset(&graphCreateParams, 0, sizeof(PH_GRAPH_CREATEPARAMS));
+    graphCreateParams.Size = sizeof(PH_GRAPH_CREATEPARAMS);
+    graphCreateParams.Callback = PhSipNotifyPhysicalGraph;
 
     PhysicalGraphHandle = CreateWindow(
         PH_GRAPH_CLASSNAME,
@@ -527,12 +655,12 @@ VOID PhSipCreateMemoryGraphs(
         WS_VISIBLE | WS_CHILD | WS_BORDER,
         0,
         0,
-        3,
-        3,
+        0,
+        0,
         MemoryDialog,
         NULL,
         PhInstanceHandle,
-        NULL
+        &graphCreateParams
         );
     Graph_SetTooltip(PhysicalGraphHandle, TRUE);
 }
@@ -610,15 +738,19 @@ VOID PhSipLayoutMemoryGraphs(
     EndDeferWindowPos(deferHandle);
 }
 
-VOID PhSipNotifyCommitGraph(
-    _In_ NMHDR *Header
+BOOLEAN NTAPI PhSipNotifyCommitGraph(
+    _In_ HWND GraphHandle,
+    _In_ ULONG GraphMessage,
+    _In_ PVOID Parameter1,
+    _In_ PVOID Parameter2,
+    _In_ PVOID Context
     )
 {
-    switch (Header->code)
+    switch (GraphMessage)
     {
     case GCN_GETDRAWINFO:
         {
-            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Header;
+            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Parameter1;
             PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
             ULONG i;
 
@@ -673,7 +805,7 @@ VOID PhSipNotifyCommitGraph(
         break;
     case GCN_GETTOOLTIPTEXT:
         {
-            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Header;
+            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Parameter1;
 
             if (getTooltipText->Index < getTooltipText->TotalCount)
             {
@@ -698,17 +830,23 @@ VOID PhSipNotifyCommitGraph(
         }
         break;
     }
+
+    return TRUE;
 }
 
-VOID PhSipNotifyPhysicalGraph(
-    _In_ NMHDR *Header
+BOOLEAN NTAPI PhSipNotifyPhysicalGraph(
+    _In_ HWND GraphHandle,
+    _In_ ULONG GraphMessage,
+    _In_ PVOID Parameter1,
+    _In_ PVOID Parameter2,
+    _In_ PVOID Context
     )
 {
-    switch (Header->code)
+    switch (GraphMessage)
     {
     case GCN_GETDRAWINFO:
         {
-            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Header;
+            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Parameter1;
             PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
             ULONG i;
 
@@ -763,16 +901,16 @@ VOID PhSipNotifyPhysicalGraph(
         break;
     case GCN_GETTOOLTIPTEXT:
         {
-            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Header;
+            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Parameter1;
 
             if (getTooltipText->Index < getTooltipText->TotalCount)
             {
                 if (PhysicalGraphState.TooltipIndex != getTooltipText->Index)
                 {
                     ULONG usedPages;
-                    DOUBLE currentCompressedMemory;
-                    DOUBLE totalCompressedMemory;
-                    DOUBLE totalSavedMemory;
+                    FLOAT currentCompressedMemory;
+                    FLOAT totalCompressedMemory;
+                    FLOAT totalSavedMemory;
 
                     usedPages = PhGetItemCircularBuffer_ULONG(&PhPhysicalHistory, getTooltipText->Index);
 
@@ -814,6 +952,8 @@ VOID PhSipNotifyPhysicalGraph(
         }
         break;
     }
+
+    return TRUE;
 }
 
 VOID PhSipUpdateMemoryGraphs(
@@ -822,17 +962,11 @@ VOID PhSipUpdateMemoryGraphs(
 {
     CommitGraphState.Valid = FALSE;
     CommitGraphState.TooltipIndex = ULONG_MAX;
-    Graph_MoveGrid(CommitGraphHandle, 1);
-    Graph_Draw(CommitGraphHandle);
-    Graph_UpdateTooltip(CommitGraphHandle);
-    InvalidateRect(CommitGraphHandle, NULL, FALSE);
+    Graph_Update(CommitGraphHandle);
 
     PhysicalGraphState.Valid = FALSE;
     PhysicalGraphState.TooltipIndex = ULONG_MAX;
-    Graph_MoveGrid(PhysicalGraphHandle, 1);
-    Graph_Draw(PhysicalGraphHandle);
-    Graph_UpdateTooltip(PhysicalGraphHandle);
-    InvalidateRect(PhysicalGraphHandle, NULL, FALSE);
+    Graph_Update(PhysicalGraphHandle);
 }
 
 VOID PhSipUpdateMemoryPanel(
@@ -842,6 +976,49 @@ VOID PhSipUpdateMemoryPanel(
     PWSTR pagedLimit;
     PWSTR nonPagedLimit;
     SYSTEM_MEMORY_LIST_INFORMATION memoryListInfo;
+
+    // Hardware
+
+    if (MemoryTicked == 0)
+    {
+        if (PhGetVirtualStatus() == PhVirtualStatusVirtualMachine)
+        {
+            PhSetDialogItemText(MemoryPanel, IDC_ZMEMSLOTS_V, L"N/A");
+            PhSetDialogItemText(MemoryPanel, IDC_ZMEMFORMFACTOR_V, L"N/A");
+            PhSetDialogItemText(MemoryPanel, IDC_ZMEMTYPE_V, L"N/A");
+            PhSetDialogItemText(MemoryPanel, IDC_ZMEMTECHNOLOGY_V, L"N/A");
+            PhSetDialogItemText(MemoryPanel, IDC_ZMEMSPEED_V, L"N/A");
+        }
+        else
+        {
+            PH_FORMAT format[3];
+            PCWSTR string;
+
+            PhInitFormatU(&format[0], MemorySlotsUsed);
+            PhInitFormatS(&format[1], L" of ");
+            PhInitFormatU(&format[2], MemorySlotsTotal);
+            PhSetDialogItemText(MemoryPanel, IDC_ZMEMSLOTS_V, PhaFormat(format, 3, 10)->Buffer);
+
+            if (PhFindStringSiKeyValuePairs(MemoryFormFactors, sizeof(MemoryFormFactors), MemoryFormFactor, &string))
+                PhSetDialogItemText(MemoryPanel, IDC_ZMEMFORMFACTOR_V, string);
+            else
+                PhSetDialogItemText(MemoryPanel, IDC_ZMEMFORMFACTOR_V, L"Undefined");
+
+            if (PhFindStringSiKeyValuePairs(MemoryTypes, sizeof(MemoryTypes), MemoryType, &string))
+                PhSetDialogItemText(MemoryPanel, IDC_ZMEMTYPE_V, string);
+            else
+                PhSetDialogItemText(MemoryPanel, IDC_ZMEMTYPE_V, L"Undefined");
+
+            if (PhFindStringSiKeyValuePairs(MemoryTechnologies, sizeof(MemoryTechnologies), MemoryTechnology, &string))
+                PhSetDialogItemText(MemoryPanel, IDC_ZMEMTECHNOLOGY_V, string);
+            else
+                PhSetDialogItemText(MemoryPanel, IDC_ZMEMTECHNOLOGY_V, L"Undefined");
+
+            PhInitFormatU(&format[0], MemorySpeed);
+            PhInitFormatS(&format[1], L" MT/s");
+            PhSetDialogItemText(MemoryPanel, IDC_ZMEMSPEED_V, PhaFormat(format, 2, 10)->Buffer);
+        }
+    }
 
     // Commit charge
 
@@ -1051,7 +1228,7 @@ NTSTATUS PhSipLoadMmAddresses(
         PhLoadModuleSymbolProvider(
             symbolProvider,
             kernelFileName,
-            (ULONG64)kernelImageBase,
+            kernelImageBase,
             kernelImageSize
             );
 
@@ -1137,23 +1314,23 @@ VOID PhSipGetPoolLimits(
 
 _Success_(return)
 BOOLEAN PhSipGetMemoryCompressionLimits(
-    _Out_ DOUBLE *CurrentCompressedMemory,
-    _Out_ DOUBLE *TotalCompressedMemory,
-    _Out_ DOUBLE *TotalSavedMemory
+    _Out_ FLOAT *CurrentCompressedMemory,
+    _Out_ FLOAT *TotalCompressedMemory,
+    _Out_ FLOAT *TotalSavedMemory
     )
 {
     PH_SYSTEM_STORE_COMPRESSION_INFORMATION compressionInfo;
-    DOUBLE current;
-    DOUBLE total;
-    DOUBLE saved;
+    FLOAT current;
+    FLOAT total;
+    FLOAT saved;
 
     if (!NT_SUCCESS(PhGetSystemCompressionStoreInformation(&compressionInfo)))
         return FALSE;
     if (!(compressionInfo.TotalDataCompressed && compressionInfo.TotalCompressedSize))
         return FALSE;
 
-    current = (DOUBLE)compressionInfo.WorkingSetSize / (DOUBLE)(1024 * 1024);
-    total = current * (DOUBLE)compressionInfo.TotalDataCompressed / (DOUBLE)compressionInfo.TotalCompressedSize;
+    current = (FLOAT)compressionInfo.WorkingSetSize / (FLOAT)(1024 * 1024);
+    total = current * (FLOAT)compressionInfo.TotalDataCompressed / (FLOAT)compressionInfo.TotalCompressedSize;
     saved = total - current;
 
     *CurrentCompressedMemory = current * 1024 * 1024;

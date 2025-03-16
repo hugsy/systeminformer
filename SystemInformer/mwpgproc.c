@@ -265,7 +265,7 @@ BOOLEAN PhMwpCurrentUserProcessTreeFilter(
 }
 
 VOID PhMwpToggleSignedProcessTreeFilter(
-    VOID
+    _In_ HWND WindowHandle
     )
 {
     if (!SignedFilterEntry)
@@ -273,7 +273,7 @@ VOID PhMwpToggleSignedProcessTreeFilter(
         if (!PhEnableProcessQueryStage2)
         {
             PhShowInformation2(
-                PhMainWndHandle,
+                WindowHandle,
                 NULL,
                 L"This filter cannot function because digital signature checking is not enabled.\r\n%s",
                 L"Enable it in Options > General and restart System Informer."
@@ -366,6 +366,7 @@ BOOLEAN PhMwpMicrosoftProcessTreeFilter(
 }
 
 BOOLEAN PhMwpExecuteProcessPriorityCommand(
+    _In_ HWND WindowHandle,
     _In_ ULONG Id,
     _In_ PPH_PROCESS_ITEM *Processes,
     _In_ ULONG NumberOfProcesses
@@ -397,12 +398,13 @@ BOOLEAN PhMwpExecuteProcessPriorityCommand(
         return FALSE;
     }
 
-    PhUiSetPriorityProcesses(PhMainWndHandle, Processes, NumberOfProcesses, priorityClass);
+    PhUiSetPriorityProcesses(WindowHandle, Processes, NumberOfProcesses, priorityClass);
 
     return TRUE;
 }
 
 BOOLEAN PhMwpExecuteProcessIoPriorityCommand(
+    _In_ HWND WindowHandle,
     _In_ ULONG Id,
     _In_ PPH_PROCESS_ITEM *Processes,
     _In_ ULONG NumberOfProcesses
@@ -428,7 +430,7 @@ BOOLEAN PhMwpExecuteProcessIoPriorityCommand(
         return FALSE;
     }
 
-    PhUiSetIoPriorityProcesses(PhMainWndHandle, Processes, NumberOfProcesses, ioPriority);
+    PhUiSetIoPriorityProcesses(WindowHandle, Processes, NumberOfProcesses, ioPriority);
 
     return TRUE;
 }
@@ -455,7 +457,7 @@ VOID PhMwpSetProcessMenuPriorityChecks(
     {
         if (SetPriority)
         {
-            if (!NT_SUCCESS(PhGetProcessPriority(
+            if (!NT_SUCCESS(PhGetProcessPriorityClass(
                 processHandle,
                 &priorityClass
                 )))
@@ -759,8 +761,7 @@ VOID PhMwpInitializeProcessMenu(
             if (item = PhFindEMenuItem(Menu, 0, NULL, ID_PROCESS_SUSPENDTREE))
                 PhDestroyEMenuItem(item);
         }
-
-        if (!Processes[0]->IsPartiallySuspended)
+        else
         {
             if (item = PhFindEMenuItem(Menu, 0, NULL, ID_PROCESS_RESUME))
                 PhDestroyEMenuItem(item);
@@ -770,7 +771,7 @@ VOID PhMwpInitializeProcessMenu(
 
         if (WindowsVersion >= WINDOWS_11 && PH_IS_REAL_PROCESS_ID(Processes[0]->ProcessId))
         {
-            if (PhIsProcessStateFrozen(Processes[0]->ProcessId))
+            if (!PhIsNullOrInvalidHandle(Processes[0]->FreezeHandle))
             {
                 if (item = PhFindEMenuItem(Menu, 0, NULL, ID_PROCESS_FREEZE))
                     PhDestroyEMenuItem(item);
@@ -890,7 +891,7 @@ PPH_EMENU PhpCreateProcessMenu(
         else if (WindowsVersion < WINDOWS_11)
         {
             // Minimal only captures thread stacks, not supported before Windows 11
-            kernelMinimal->Flags |= PH_EMENU_DISABLED;
+            PhSetDisabledEMenuItem(kernelMinimal);
         }
     }
     else
@@ -934,12 +935,14 @@ PPH_EMENU PhpCreateProcessMenu(
     PhInsertEMenuItem(menu, menuItem, ULONG_MAX);
 
     menuItem = PhCreateEMenuItem(0, ID_PROCESS_MISCELLANEOUS, L"&Miscellaneous", NULL, NULL);
+    PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_MISCELLANEOUS_ACTIVITY, L"Activity moderation", NULL, NULL), ULONG_MAX);
     PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_MISCELLANEOUS_SETCRITICAL, L"&Critical", NULL, NULL), ULONG_MAX);
     PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_MISCELLANEOUS_DETACHFROMDEBUGGER, L"&Detach from debugger", NULL, NULL), ULONG_MAX);
     PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_MISCELLANEOUS_ECOMODE, L"Efficiency mode", NULL, NULL), ULONG_MAX);
     PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_MISCELLANEOUS_EXECUTIONREQUIRED, L"Execution required", NULL, NULL), ULONG_MAX);
     PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_MISCELLANEOUS_GDIHANDLES, L"GDI &handles...", NULL, NULL), ULONG_MAX);
     PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_MISCELLANEOUS_HEAPS, L"Heaps...", NULL, NULL), ULONG_MAX);
+    PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_MISCELLANEOUS_LOCKS, L"Locks...", NULL, NULL), ULONG_MAX);
     PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_MISCELLANEOUS_FLUSHHEAPS, L"Flush heaps", NULL, NULL), ULONG_MAX);
     PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_MISCELLANEOUS_PAGESMODIFIED, L"Modified pages...", NULL, NULL), ULONG_MAX);
     PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_MISCELLANEOUS_REDUCEWORKINGSET, L"Reduce working &set", NULL, NULL), ULONG_MAX);
@@ -968,6 +971,7 @@ PPH_EMENU PhpCreateProcessMenu(
 }
 
 VOID PhShowProcessContextMenu(
+    _In_ HWND WindowHandle,
     _In_ PPH_TREENEW_CONTEXT_MENU ContextMenu
     )
 {
@@ -975,9 +979,7 @@ VOID PhShowProcessContextMenu(
     PPH_PROCESS_ITEM *processes;
     ULONG numberOfProcesses;
 
-    PhGetSelectedProcessItems(&processes, &numberOfProcesses);
-
-    if (numberOfProcesses != 0)
+    if (PhGetSelectedProcessItems(&processes, &numberOfProcesses))
     {
         PPH_EMENU menu;
         PPH_EMENU_ITEM item;
@@ -994,7 +996,7 @@ VOID PhShowProcessContextMenu(
 
         if (PhPluginsEnabled)
         {
-            PhPluginInitializeMenuInfo(&menuInfo, menu, PhMainWndHandle, 0);
+            PhPluginInitializeMenuInfo(&menuInfo, menu, WindowHandle, 0);
             menuInfo.u.Process.Processes = processes;
             menuInfo.u.Process.NumberOfProcesses = numberOfProcesses;
 
@@ -1003,7 +1005,7 @@ VOID PhShowProcessContextMenu(
 
         item = PhShowEMenu(
             menu,
-            PhMainWndHandle,
+            WindowHandle,
             PH_EMENU_SHOW_LEFTRIGHT,
             PH_ALIGN_LEFT | PH_ALIGN_TOP,
             ContextMenu->Location.x,
@@ -1020,13 +1022,13 @@ VOID PhShowProcessContextMenu(
                 handled = PhPluginTriggerEMenuItem(&menuInfo, item);
 
             if (!handled)
-                SendMessage(PhMainWndHandle, WM_COMMAND, item->Id, 0);
+                SendMessage(WindowHandle, WM_COMMAND, item->Id, 0);
         }
 
         PhDestroyEMenu(menu);
-    }
 
-    PhFree(processes);
+        PhFree(processes);
+    }
 }
 
 VOID NTAPI PhMwpProcessAddedHandler(
@@ -1069,7 +1071,7 @@ VOID NTAPI PhMwpProcessesUpdatedHandler(
     _In_ PVOID Context
     )
 {
-    ProcessHacker_Invoke(PhMwpOnProcessesUpdated, PhGetRunIdProvider(&PhMwpProcessProviderRegistration));
+    SystemInformer_Invoke(PhMwpOnProcessesUpdated, PhGetRunIdProvider(&PhMwpProcessProviderRegistration));
 }
 
 VOID PhMwpOnProcessAdded(
@@ -1269,13 +1271,15 @@ VOID PhMwpOnProcessesUpdated(
     // We have to invalidate the text on each update.
     PhTickProcessNodes();
 
-    if (PhPluginsEnabled)
+    if (count != 0)
     {
-        PhInvokeCallback(PhGetGeneralCallback(GeneralCallbackProcessesUpdated), NULL);
+        TreeNew_SetRedraw(PhMwpProcessTreeNewHandle, TRUE);
     }
 
-    if (count != 0)
-        TreeNew_SetRedraw(PhMwpProcessTreeNewHandle, TRUE);
+    if (PhPluginsEnabled)
+    {
+        PhInvokeCallback(PhGetGeneralCallback(GeneralCallbackProcessesUpdated), UlongToPtr(RunId));
+    }
 
     if (NeedsSelectPid != 0)
     {

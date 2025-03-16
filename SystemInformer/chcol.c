@@ -72,7 +72,7 @@ VOID PhShowChooseColumnsDialog(
     PhDereferenceObject(context.Columns);
 }
 
-static int __cdecl PhpColumnsCompareDisplayIndexTn(
+static long __cdecl PhpColumnsCompareDisplayIndexTn(
     _In_ const void* Context,
     _In_ const void *elem1,
     _In_ const void *elem2
@@ -84,14 +84,14 @@ static int __cdecl PhpColumnsCompareDisplayIndexTn(
     return uintcmp(column1->DisplayIndex, column2->DisplayIndex);
 }
 
-static int __cdecl PhpInactiveColumnsCompareNameTn(
+static long __cdecl PhpInactiveColumnsCompareNameTn(
     _In_ const void* Context,
     _In_ const void *elem1,
     _In_ const void *elem2
     )
 {
-    PWSTR column1 = *(PWSTR *)elem1;
-    PWSTR column2 = *(PWSTR *)elem2;
+    PCWSTR column1 = *(PCWSTR *)elem1;
+    PCWSTR column2 = *(PCWSTR *)elem2;
 
     return PhCompareStringZ(column1, column2, FALSE);
 }
@@ -99,7 +99,7 @@ static int __cdecl PhpInactiveColumnsCompareNameTn(
 _Success_(return != ULONG_MAX)
 static ULONG IndexOfStringInList(
     _In_ PPH_LIST List,
-    _In_ PWSTR String
+    _In_ PCWSTR String
     )
 {
     for (ULONG i = 0; i < List->Count; i++)
@@ -160,8 +160,6 @@ VOID NTAPI PhpInactiveColumnsSearchControlCallback(
 {
     PCOLUMNS_DIALOG_CONTEXT context = Context;
 
-    assert(context);
-
     PhpColumnsResetListBox(
         context->InactiveWindowHandle,
         MatchHandle,
@@ -177,8 +175,6 @@ VOID NTAPI PhpActiveColumnsSearchControlCallback(
 {
     PCOLUMNS_DIALOG_CONTEXT context = Context;
 
-    assert(context);
-
     PhpColumnsResetListBox(
         context->ActiveWindowHandle,
         MatchHandle,
@@ -186,7 +182,6 @@ VOID NTAPI PhpActiveColumnsSearchControlCallback(
         NULL
         );
 }
-
 
 INT_PTR CALLBACK PhpColumnsDlgProc(
     _In_ HWND hwndDlg,
@@ -261,12 +256,12 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
             Button_Enable(context->MoveUpHandle, FALSE);
             Button_Enable(context->MoveDownHandle, FALSE);
 
-            if (PhGetIntegerSetting(L"EnableThemeSupport"))
+            if (PhEnableThemeSupport)
             {
-                context->BrushNormal = CreateSolidBrush(RGB(43, 43, 43));
-                context->BrushHot = CreateSolidBrush(RGB(128, 128, 128));
-                context->BrushPushed = CreateSolidBrush(RGB(153, 209, 255));
-                context->TextColor = RGB(0xff, 0xff, 0xff);
+                context->BrushNormal = CreateSolidBrush(PhThemeWindowBackgroundColor);
+                context->BrushHot = CreateSolidBrush(PhThemeWindowHighlightColor);
+                context->BrushPushed = CreateSolidBrush(PhThemeWindowHighlight2Color);
+                context->TextColor = PhThemeWindowTextColor;
             }
             else
             {
@@ -309,7 +304,7 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
                         }
                         else
                         {
-                            PhAddItemList(context->InactiveListArray, column.Text);
+                            PhAddItemList(context->InactiveListArray, (PWSTR)column.Text);
                         }
                     }
 
@@ -334,7 +329,7 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
                     {
                         PPH_TREENEW_COLUMN copy = displayOrderList->Items[i];
 
-                        PhAddItemList(context->ActiveListArray, copy->Text);
+                        PhAddItemList(context->ActiveListArray, (PWSTR)copy->Text);
                         ListBox_InsertString(context->ActiveWindowHandle, i, copy->Text);
                     }
                 }
@@ -389,18 +384,19 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
                 break;
             case IDOK:
                 {
-                    #define ORDER_LIMIT 210
                     ULONG i;
-                    INT orderArray[ORDER_LIMIT];
-                    INT maxOrder;
-#ifdef DEBUG
-                    assert(TreeNew_GetColumnCount(context->ControlHandle) < ORDER_LIMIT); // bump ORDER_LIMIT macro (dmex)
-#endif
-                    memset(orderArray, 0, sizeof(orderArray));
-                    maxOrder = 0;
+                    ULONG orderArraySize;
+                    PULONG orderArray;
+                    ULONG maxOrder;
 
                     if (context->Type == PH_CONTROL_TYPE_TREE_NEW)
                     {
+                        orderArraySize = (TreeNew_GetColumnCount(context->ControlHandle) + 1) * sizeof(ULONG);
+                        orderArray = _malloca(orderArraySize);
+
+                        memset(orderArray, 0, orderArraySize);
+                        maxOrder = 0;
+
                         // Apply visibility settings and build the order array.
 
                         TreeNew_SetRedraw(context->ControlHandle, FALSE);
@@ -415,11 +411,11 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
 
                             TreeNew_SetColumn(context->ControlHandle, TN_COLUMN_FLAG_VISIBLE, column);
 
-                            if (column->Visible && index < ORDER_LIMIT)
+                            if (column->Visible)
                             {
                                 orderArray[index] = column->Id;
 
-                                if ((ULONG)maxOrder < index + 1)
+                                if (maxOrder < index + 1)
                                     maxOrder = index + 1;
                             }
                         }
@@ -430,6 +426,8 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
                         TreeNew_SetRedraw(context->ControlHandle, TRUE);
 
                         InvalidateRect(context->ControlHandle, NULL, FALSE);
+
+                        _freea(orderArray);
                     }
 
                     EndDialog(hwndDlg, IDOK);
@@ -437,7 +435,7 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
                 break;
             case IDC_INACTIVE:
                 {
-                    switch (HIWORD(wParam))
+                    switch (GET_WM_COMMAND_CMD(wParam, lParam))
                     {
                     case LBN_DBLCLK:
                         {
@@ -446,7 +444,7 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
                         break;
                     case LBN_SELCHANGE:
                         {
-                            INT sel = ListBox_GetCurSel(context->InactiveWindowHandle);
+                            LONG sel = ListBox_GetCurSel(context->InactiveWindowHandle);
 
                             EnableWindow(context->ShowWindowHandle, sel != LB_ERR);
                         }
@@ -456,7 +454,7 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
                 break;
             case IDC_ACTIVE:
                 {
-                    switch (HIWORD(wParam))
+                    switch (GET_WM_COMMAND_CMD(wParam, lParam))
                     {
                     case LBN_DBLCLK:
                         {
@@ -465,8 +463,8 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
                         break;
                     case LBN_SELCHANGE:
                         {
-                            INT sel = ListBox_GetCurSel(context->ActiveWindowHandle);
-                            INT count = ListBox_GetCount(context->ActiveWindowHandle);
+                            LONG sel = ListBox_GetCurSel(context->ActiveWindowHandle);
+                            LONG count = ListBox_GetCount(context->ActiveWindowHandle);
 
                             if (sel != LB_ERR)
                             {
@@ -481,8 +479,8 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
                 break;
             case IDC_SHOW:
                 {
-                    INT sel;
-                    INT count;
+                    LONG sel;
+                    LONG count;
                     PPH_STRING string;
 
                     sel = ListBox_GetCurSel(context->InactiveWindowHandle);
@@ -525,8 +523,8 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
                 break;
             case IDC_HIDE:
                 {
-                    INT sel;
-                    INT count;
+                    LONG sel;
+                    LONG count;
                     PPH_STRING string;
 
                     sel = ListBox_GetCurSel(context->ActiveWindowHandle);
@@ -581,8 +579,8 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
                 break;
             case IDC_MOVEUP:
                 {
-                    INT sel;
-                    INT count;
+                    LONG sel;
+                    LONG count;
                     PPH_STRING string;
 
                     sel = ListBox_GetCurSel(context->ActiveWindowHandle);
@@ -618,8 +616,8 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
                 break;
             case IDC_MOVEDOWN:
                 {
-                    INT sel;
-                    INT count;
+                    LONG sel;
+                    LONG count;
                     PPH_STRING string;
 
                     sel = ListBox_GetCurSel(context->ActiveWindowHandle);
@@ -699,7 +697,7 @@ INT_PTR CALLBACK PhpColumnsDlgProc(
                  if (isSelected || isFocused)
                  {
                      FillRect(bufferDc, &bufferRect, context->BrushHot);
-                     //FrameRect(bufferDc, &bufferRect, GetStockBrush(BLACK_BRUSH));
+                     //FrameRect(bufferDc, &bufferRect, PhGetStockBrush(BLACK_BRUSH));
                      SetTextColor(bufferDc, context->TextColor);
                  }
                  else

@@ -26,8 +26,9 @@ typedef struct _PH_HANDLE_ITEM
 {
     PH_HASH_ENTRY HashEntry;
 
-    HANDLE Handle;
     PVOID Object;
+    HANDLE Handle;
+    HANDLE ProcessId;
     ULONG Attributes;
     ACCESS_MASK GrantedAccess;
     ULONG TypeIndex;
@@ -60,14 +61,17 @@ typedef struct _PH_HANDLE_PROVIDER
     PPH_HASHTABLE TempListHashtable;
     NTSTATUS RunStatus;
 } PH_HANDLE_PROVIDER, *PPH_HANDLE_PROVIDER;
+
+PHAPPAPI
+PPH_HANDLE_ITEM
+NTAPI
+PhCreateHandleItem(
+    _In_opt_ PSYSTEM_HANDLE_TABLE_ENTRY_INFO_EX Handle
+    );
 // end_phapppub
 
 PPH_HANDLE_PROVIDER PhCreateHandleProvider(
     _In_ HANDLE ProcessId
-    );
-
-PPH_HANDLE_ITEM PhCreateHandleItem(
-    _In_opt_ PSYSTEM_HANDLE_TABLE_ENTRY_INFO_EX Handle
     );
 
 PPH_HANDLE_ITEM PhReferenceHandleItem(

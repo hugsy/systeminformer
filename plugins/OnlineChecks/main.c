@@ -28,16 +28,14 @@ PH_CALLBACK_REGISTRATION ModulesTreeNewInitializingCallbackRegistration;
 PH_CALLBACK_REGISTRATION ServiceTreeNewInitializingCallbackRegistration;
 
 BOOLEAN VirusTotalScanningEnabled = FALSE;
-ULONG ProcessesUpdatedCount = 0;
 
 VOID ProcessesUpdatedCallback(
-    _In_opt_ PVOID Parameter,
+    _In_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
 {
-    if (ProcessesUpdatedCount != 3)
+    if (PtrToUlong(Parameter) < 3)
     {
-        ProcessesUpdatedCount++;
         return;
     }
 }
@@ -56,7 +54,7 @@ VOID NTAPI ShowOptionsCallback(
     )
 {
     PPH_PLUGIN_OPTIONS_POINTERS optionsEntry = (PPH_PLUGIN_OPTIONS_POINTERS)Parameter;
-
+    
     optionsEntry->CreateSection(
         L"OnlineChecks",
         PluginInstance->DllBase,
@@ -84,19 +82,19 @@ VOID NTAPI MenuItemCallback(
         UploadToOnlineService(menuItem->Context, MENUITEM_VIRUSTOTAL_UPLOAD);
         break;
     case MENUITEM_VIRUSTOTAL_UPLOAD_SERVICE:
-        UploadServiceToOnlineService(menuItem->Context, MENUITEM_VIRUSTOTAL_UPLOAD_SERVICE);
+        UploadServiceToOnlineService(menuItem->OwnerWindow, menuItem->Context, MENUITEM_VIRUSTOTAL_UPLOAD_SERVICE);
         break;
     case MENUITEM_JOTTI_UPLOAD:
         UploadToOnlineService(menuItem->Context, MENUITEM_JOTTI_UPLOAD);
         break;
     case MENUITEM_JOTTI_UPLOAD_SERVICE:
-        UploadServiceToOnlineService(menuItem->Context, MENUITEM_JOTTI_UPLOAD_SERVICE);
+        UploadServiceToOnlineService(menuItem->OwnerWindow, menuItem->Context, MENUITEM_JOTTI_UPLOAD_SERVICE);
         break;
     case MENUITEM_HYBRIDANALYSIS_UPLOAD:
         UploadToOnlineService(menuItem->Context, MENUITEM_HYBRIDANALYSIS_UPLOAD);
         break;
     case MENUITEM_HYBRIDANALYSIS_UPLOAD_SERVICE:
-        UploadServiceToOnlineService(menuItem->Context, MENUITEM_HYBRIDANALYSIS_UPLOAD_SERVICE);
+        UploadServiceToOnlineService(menuItem->OwnerWindow, menuItem->Context, MENUITEM_HYBRIDANALYSIS_UPLOAD_SERVICE);
         break;
     case MENUITEM_VIRUSTOTAL_UPLOAD_FILE:
     case MENUITEM_HYBRIDANALYSIS_UPLOAD_FILE:
@@ -139,21 +137,21 @@ VOID NTAPI MainMenuInitializingCallback(
 {
     PPH_PLUGIN_MENU_INFORMATION menuInfo = Parameter;
     PPH_EMENU_ITEM onlineMenuItem;
-    PPH_EMENU_ITEM enableMenuItem;
+    //PPH_EMENU_ITEM enableMenuItem;
 
     if (menuInfo->u.MainMenu.SubMenuIndex != PH_MENU_ITEM_LOCATION_TOOLS)
         return;
 
     onlineMenuItem = PhPluginCreateEMenuItem(PluginInstance, 0, 0, L"&Online Checks", NULL);
-    PhInsertEMenuItem(onlineMenuItem, enableMenuItem = PhPluginCreateEMenuItem(PluginInstance, 0, ENABLE_SERVICE_VIRUSTOTAL, L"&Enable VirusTotal scanning", NULL), ULONG_MAX);
-    PhInsertEMenuItem(onlineMenuItem, PhCreateEMenuSeparator(), ULONG_MAX);
+    //PhInsertEMenuItem(onlineMenuItem, enableMenuItem = PhPluginCreateEMenuItem(PluginInstance, 0, ENABLE_SERVICE_VIRUSTOTAL, L"&Enable VirusTotal scanning", NULL), ULONG_MAX);
+    //PhInsertEMenuItem(onlineMenuItem, PhCreateEMenuSeparator(), ULONG_MAX);
     PhInsertEMenuItem(onlineMenuItem, PhPluginCreateEMenuItem(PluginInstance, 0, MENUITEM_HYBRIDANALYSIS_UPLOAD_FILE, L"Upload file to &Hybrid-Analysis...", NULL), ULONG_MAX);
     PhInsertEMenuItem(onlineMenuItem, PhPluginCreateEMenuItem(PluginInstance, 0, MENUITEM_VIRUSTOTAL_UPLOAD_FILE, L"&Upload file to VirusTotal...", NULL), ULONG_MAX);
     //PhInsertEMenuItem(onlineMenuItem, PhPluginCreateEMenuItem(PluginInstance, 0, MENUITEM_VIRUSTOTAL_QUEUE, L"Upload unknown files to VirusTotal...", NULL), ULONG_MAX);
     PhInsertEMenuItem(menuInfo->Menu, onlineMenuItem, ULONG_MAX);
 
-    if (VirusTotalScanningEnabled)
-        enableMenuItem->Flags |= PH_EMENU_CHECKED;
+    //if (VirusTotalScanningEnabled)
+    //     enableMenuItem->Flags |= PH_EMENU_CHECKED;
 }
 
 PPH_EMENU_ITEM CreateSendToMenu(
@@ -441,7 +439,7 @@ VOID NTAPI TreeNewMessageCallback(
 
             if (!VirusTotalScanningEnabled)
             {
-                static PH_STRINGREF disabledText = PH_STRINGREF_INIT(L"Scanning disabled");
+                static CONST PH_STRINGREF disabledText = PH_STRINGREF_INIT(L"Scanning disabled");
 
                 DrawText(
                     customDraw->Dc,
@@ -599,7 +597,6 @@ LOGICAL DllMain(
                 return FALSE;
 
             info->DisplayName = L"Online Checks";
-            info->Author = L"dmex, wj32";
             info->Description = L"Allows files to be checked with online services.";
 
             PhRegisterCallback(

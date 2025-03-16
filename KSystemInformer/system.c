@@ -13,7 +13,7 @@
 
 #include <trace.h>
 
-PAGED_FILE();
+KPH_PAGED_FILE();
 
 /**
  * \brief Performs generic system control actions.
@@ -37,7 +37,7 @@ NTSTATUS KphSystemControl(
     NTSTATUS status;
     HANDLE processHandle;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     UNREFERENCED_PARAMETER(SystemControlInfo);
     UNREFERENCED_PARAMETER(SystemControlInfoLength);
@@ -50,19 +50,19 @@ NTSTATUS KphSystemControl(
         case KphSystemControlEmptyCompressionStore:
         {
             SYSTEM_STORE_INFORMATION storeInfo;
-            SM_MEM_COMPRESSION_INFO_REQUEST compressionInfo;
+            SM_STORE_COMPRESSION_INFORMATION_REQUEST compressionInfo;
             CLIENT_ID clientId;
             OBJECT_ATTRIBUTES objectAttributes;
             QUOTA_LIMITS_EX quotaLimits;
 
-            RtlZeroMemory(&compressionInfo, sizeof(compressionInfo));
-            compressionInfo.Version = SYSTEM_STORE_COMPRESSION_INFORMATION_VERSION;
+            RtlZeroMemory(&compressionInfo, sizeof(SM_STORE_COMPRESSION_INFORMATION_REQUEST));
+            compressionInfo.Version = SYSTEM_STORE_COMPRESSION_INFORMATION_VERSION_V1;
 
-            RtlZeroMemory(&storeInfo, sizeof(storeInfo));
+            RtlZeroMemory(&storeInfo, sizeof(SYSTEM_STORE_INFORMATION));
             storeInfo.Version = SYSTEM_STORE_INFORMATION_VERSION;
             storeInfo.StoreInformationClass = MemCompressionInfoRequest;
             storeInfo.Data = &compressionInfo;
-            storeInfo.Length = sizeof(compressionInfo);
+            storeInfo.Length = SYSTEM_STORE_COMPRESSION_INFORMATION_SIZE_V1;
 
             status = ZwQuerySystemInformation(SystemStoreInformation,
                                               &storeInfo,

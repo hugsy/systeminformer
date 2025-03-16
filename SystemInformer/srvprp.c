@@ -88,10 +88,21 @@ static NTSTATUS PhpOpenServiceCallback(
 }
 
 NTSTATUS PhpCloseServiceCallback(
-    _In_ PVOID Context
+    _In_opt_ HANDLE Handle,
+    _In_opt_ BOOLEAN Release,
+    _In_opt_ PVOID Context
     )
 {
-    PhDereferenceObject(((PPH_SERVICE_ITEM)Context));
+    if (Handle)
+    {
+        PhCloseServiceHandle(Handle);
+    }
+
+    if (Release && Context)
+    {
+        PhDereferenceObject(((PPH_SERVICE_ITEM)Context));
+    }
+
     return STATUS_SUCCESS;
 }
 
@@ -128,6 +139,78 @@ static _Callback_ NTSTATUS PhpSetServiceSecurityCallback(
     return status;
 }
 
+LRESULT CALLBACK PhpPropSheetSrvWndProc(
+    _In_ HWND hwnd,
+    _In_ UINT uMsg,
+    _In_ WPARAM wParam,
+    _In_ LPARAM lParam
+    )
+{
+    WNDPROC oldWndProc;
+
+    oldWndProc = PhGetWindowContext(hwnd, 0xF);
+
+    if (!oldWndProc)
+        return 0;
+
+    switch (uMsg)
+    {
+        case WM_NCDESTROY:
+        {
+            SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)oldWndProc);
+            PhRemoveWindowContext(hwnd, 0xF);
+        }
+        break;
+    case WM_SYSCOMMAND:
+        {
+            switch (wParam & 0xFFF0)
+            {
+            case SC_CLOSE:
+                {
+                    PostMessage(hwnd, WM_CLOSE, 0, 0);
+                }
+                break;
+            }
+        }
+        break;
+    case WM_KEYDOWN: // forward key messages
+        {
+            HWND pageWindowHandle;
+
+            if (pageWindowHandle = PropSheet_GetCurrentPageHwnd(hwnd))
+            {
+                if (SendMessage(pageWindowHandle, uMsg, wParam, lParam))
+                {
+                    return TRUE;
+                }
+            }
+        }
+        break;
+    }
+
+    return CallWindowProc(oldWndProc, hwnd, uMsg, wParam, lParam);
+}
+
+INT CALLBACK PhpPropSheetSrvProc(
+    _In_ HWND hwndDlg,
+    _In_ UINT uMsg,
+    _In_ LPARAM lParam
+    )
+{
+    switch (uMsg)
+    {
+        case PSCB_INITIALIZED:
+        {
+            PhSetWindowContext(hwndDlg, 0xF, (PVOID)GetWindowLongPtr(hwndDlg, GWLP_WNDPROC));
+
+            SetWindowLongPtr(hwndDlg, GWLP_WNDPROC, (LONG_PTR)PhpPropSheetSrvWndProc);
+        }
+        break;
+    }
+
+    return 0;
+}
+
 NTSTATUS PhpShowServicePropertiesThread(
     _In_ PVOID Context
     )
@@ -143,7 +226,7 @@ NTSTATUS PhpShowServicePropertiesThread(
         PSH_NOAPPLYNOW |
         PSH_NOCONTEXTHELP |
         PSH_PROPTITLE |
-        //PSH_USECALLBACK |
+        PSH_USECALLBACK |
         PSH_USEHICON;
     propSheetHeader.hInstance = PhInstanceHandle;
     //propSheetHeader.hwndParent = ParentWindowHandle;
@@ -151,6 +234,7 @@ NTSTATUS PhpShowServicePropertiesThread(
     propSheetHeader.nPages = 0;
     propSheetHeader.nStartPage = 0;
     propSheetHeader.phpage = pages;
+    propSheetHeader.pfnCallback = PhpPropSheetSrvProc;
 
     // General
 

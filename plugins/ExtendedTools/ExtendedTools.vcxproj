@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|ARM64">
       <Configuration>Debug</Configuration>
@@ -27,6 +27,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
     <ProjectGuid>{3437FD16-A3BF-4938-883A-EB0DF1584A2A}</ProjectGuid>
     <RootNamespace>ExtendedTools</RootNamespace>
     <Keyword>Win32Proj</Keyword>
@@ -38,31 +39,37 @@
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>true</UseDebugLibraries>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>true</UseDebugLibraries>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>true</UseDebugLibraries>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="PropertySheets">
@@ -71,38 +78,38 @@
   </ImportGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <Link>
-      <AdditionalDependencies>cfgmgr32.lib;pdh.lib;tbs.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <DelayLoadDLLs>cfgmgr32.dll;oleaut32.dll;tdh.dll;tbs.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
+      <AdditionalDependencies>cfgmgr32.lib;pdh.lib;tbs.lib;winsta.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>cfgmgr32.dll;oleaut32.dll;tdh.dll;tbs.dll;winsta.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Link>
-      <AdditionalDependencies>cfgmgr32.lib;pdh.lib;tbs.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <DelayLoadDLLs>cfgmgr32.dll;oleaut32.dll;tdh.dll;tbs.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
+      <AdditionalDependencies>cfgmgr32.lib;pdh.lib;tbs.lib;winsta.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>cfgmgr32.dll;oleaut32.dll;tdh.dll;tbs.dll;winsta.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <Link>
-      <AdditionalDependencies>cfgmgr32.lib;pdh.lib;tbs.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <DelayLoadDLLs>cfgmgr32.dll;oleaut32.dll;tdh.dll;tbs.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
+      <AdditionalDependencies>cfgmgr32.lib;pdh.lib;tbs.lib;winsta.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>cfgmgr32.dll;oleaut32.dll;tdh.dll;tbs.dll;winsta.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <Link>
-      <AdditionalDependencies>cfgmgr32.lib;pdh.lib;tbs.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <DelayLoadDLLs>cfgmgr32.dll;oleaut32.dll;tdh.dll;tbs.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
+      <AdditionalDependencies>cfgmgr32.lib;pdh.lib;tbs.lib;winsta.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>cfgmgr32.dll;oleaut32.dll;tdh.dll;tbs.dll;winsta.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Link>
-      <AdditionalDependencies>cfgmgr32.lib;pdh.lib;tbs.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <DelayLoadDLLs>cfgmgr32.dll;oleaut32.dll;tdh.dll;tbs.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
+      <AdditionalDependencies>cfgmgr32.lib;pdh.lib;tbs.lib;winsta.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>cfgmgr32.dll;oleaut32.dll;tdh.dll;tbs.dll;winsta.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
     <Link>
-      <AdditionalDependencies>cfgmgr32.lib;pdh.lib;tbs.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <DelayLoadDLLs>cfgmgr32.dll;oleaut32.dll;tdh.dll;tbs.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
+      <AdditionalDependencies>cfgmgr32.lib;pdh.lib;tbs.lib;winsta.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>cfgmgr32.dll;oleaut32.dll;tdh.dll;tbs.dll;winsta.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -141,8 +148,10 @@
     <ClCompile Include="PresentMon\TraceConsumer.cpp" />
     <ClCompile Include="PresentMon\TraceSession.cpp" />
     <ClCompile Include="reparse.c" />
+    <ClCompile Include="smbios.c" />
     <ClCompile Include="svcext.c" />
     <ClCompile Include="tpm.c" />
+    <ClCompile Include="tpm_editor.c" />
     <ClCompile Include="treeext.c" />
     <ClCompile Include="etwstat.c" />
     <ClCompile Include="etwprprp.c" />
@@ -186,27 +195,34 @@
     <ClInclude Include="tpm.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="CHANGELOG.txt" />
-  </ItemGroup>
-  <ItemGroup>
     <ResourceCompile Include="ExtendedTools.rc" />
+    <ResourceCompile Include="version.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
-    <Text Include="resources\pooltag.txt" />
-  </ItemGroup>
-  <ItemGroup>
+    <Image Include="resources\callback.ico" />
+    <Image Include="resources\cpu.ico" />
     <Image Include="resources\device.ico" />
     <Image Include="resources\dll.ico" />
     <Image Include="resources\driver.ico" />
     <Image Include="resources\event.ico" />
+    <Image Include="resources\filterport.ico" />
     <Image Include="resources\folder.ico" />
+    <Image Include="resources\job.ico" />
     <Image Include="resources\key.ico" />
+    <Image Include="resources\keyedevent.ico" />
     <Image Include="resources\link.ico" />
+    <Image Include="resources\memory.ico" />
     <Image Include="resources\mutant.ico" />
     <Image Include="resources\port.ico" />
     <Image Include="resources\section.ico" />
+    <Image Include="resources\semaphore.ico" />
     <Image Include="resources\session.ico" />
+    <Image Include="resources\timer.ico" />
+    <Image Include="resources\type.ico" />
     <Image Include="resources\unknown.ico" />
+    <Image Include="resources\winsta.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

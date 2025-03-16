@@ -223,7 +223,27 @@ typedef enum _PH_DEVICE_PROPERTY_CLASS
 
     PhDevicePropertyObjectType,
 
+    PhDevicePropertyPciDeviceType,
+    PhDevicePropertyPciCurrentSpeedAndMode,
+    PhDevicePropertyPciBaseClass,
+    PhDevicePropertyPciSubClass,
+    PhDevicePropertyPciProgIf,
+    PhDevicePropertyPciCurrentPayloadSize,
+    PhDevicePropertyPciMaxPayloadSize,
+    PhDevicePropertyPciMaxReadRequestSize,
+    PhDevicePropertyPciCurrentLinkSpeed,
+    PhDevicePropertyPciCurrentLinkWidth,
+    PhDevicePropertyPciMaxLinkSpeed,
+    PhDevicePropertyPciMaxLinkWidth,
+    PhDevicePropertyPciExpressSpecVersion,
     PhDevicePropertyPciInterruptSupport,
+    PhDevicePropertyPciInterruptMessageMaximum,
+    PhDevicePropertyPciBarTypes,
+    PhDevicePropertyPciSriovSupport,
+    PhDevicePropertyPciLabel_Id,
+    PhDevicePropertyPciLabel_String,
+    PhDevicePropertyPciSerialNumber,
+
     PhDevicePropertyPciExpressCapabilityControl,
     PhDevicePropertyPciNativeExpressControl,
     PhDevicePropertyPciSystemMsiSupport,
@@ -357,6 +377,29 @@ typedef struct _PH_DEVICE_TREE
     PPH_DEVINFO DeviceInfo;
 // begin_phapppub
 } PH_DEVICE_TREE, *PPH_DEVICE_TREE;
+
+_Function_class_(PH_DEVICE_ENUM_RESOURCES_CALLBACK)
+typedef
+BOOLEAN
+NTAPI
+PH_DEVICE_ENUM_RESOURCES_CALLBACK(
+    _In_ ULONG LogicalConfig,
+    _In_ ULONG ResourceId,
+    _In_ PVOID Buffer,
+    _In_ ULONG Length,
+    _In_opt_ PVOID Context
+    );
+typedef PH_DEVICE_ENUM_RESOURCES_CALLBACK* PPH_DEVICE_ENUM_RESOURCES_CALLBACK;
+
+PHAPPAPI
+BOOLEAN
+NTAPI
+PhEnumDeviceResources(
+    _In_ PPH_DEVICE_ITEM Item,
+    _In_ ULONG LogicalConfig,
+    _In_ PPH_DEVICE_ENUM_RESOURCES_CALLBACK Callback,
+    _In_opt_ PVOID Context
+    );
 
 PHAPPAPI
 PPH_DEVICE_PROPERTY

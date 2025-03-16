@@ -127,8 +127,9 @@
 #define PHPRTLC_REFERENCEDELTA 102
 #define PHPRTLC_LXSSPID 103
 #define PHPRTLC_START_KEY 104
+#define PHPRTLC_MITIGATION_POLICIES 105
 
-#define PHPRTLC_MAXIMUM 105
+#define PHPRTLC_MAXIMUM 106
 #define PHPRTLC_IOGROUP_COUNT 9
 
 #define PHPN_WSCOUNTERS 0x1
@@ -149,11 +150,12 @@
 #define PHPN_ERRORMODE 0x8000
 #define PHPN_CODEPAGE 0x10000
 #define PHPN_POWERTHROTTLING 0x20000
-//#define UNUSED 0x40000
+#define PHPN_MITIGATIONPOLICIES 0x40000
 #define PHPN_PRIORITYBOOST 0x80000
 #define PHPN_GRANTEDACCESS 0x100000
 #define PHPN_TLSBITMAPDELTA 0x200000
 #define PHPN_REFERENCEDELTA 0x400000
+#define PHPN_STARTKEY 0x800000
 
 // begin_phapppub
 typedef struct _PH_PROCESS_NODE
@@ -188,12 +190,16 @@ typedef struct _PH_PROCESS_NODE
     // Window
     HWND WindowHandle;
     PPH_STRING WindowText;
-    BOOLEAN WindowHung;
     // DEP status
     ULONG DepStatus;
-    // Token
+
+    BOOLEAN WindowHung;
     BOOLEAN VirtualizationAllowed;
     BOOLEAN VirtualizationEnabled;
+    BOOLEAN BreakOnTerminationEnabled;
+    BOOLEAN PowerThrottling;
+    BOOLEAN PriorityBoost;
+
     // OS Context
     GUID OsContextGuid;
     ULONG OsContextVersion;
@@ -218,26 +224,22 @@ typedef struct _PH_PROCESS_NODE
     // File attributes
     LARGE_INTEGER FileLastWriteTime;
     LARGE_INTEGER FileEndOfFile;
-    // Critical
-    BOOLEAN BreakOnTerminationEnabled;
     // Code page
     USHORT CodePage;
-    // Power throttling
-    BOOLEAN PowerThrottling;
-    // Priority boost
-    BOOLEAN PriorityBoost;
     // TLS bitmap
     USHORT TlsBitmapCount;
     // Reference count
     ULONG ReferenceCount;
+    // Start key
+    ULONGLONG ProcessStartKey;
 
     PPH_STRING TooltipText;
     ULONG64 TooltipTextValidToTickCount;
 
     // Text buffers
     WCHAR CpuUsageText[PH_INT32_STR_LEN_1 + 3];
-    WCHAR IoTotalRateText[PH_INT64_STR_LEN_1 + 3];
-    WCHAR PrivateBytesText[PH_INT64_STR_LEN_1];
+    PPH_STRING IoTotalRateText;
+    PPH_STRING PrivateBytesText;
     PPH_STRING PeakPrivateBytesText;
     PPH_STRING WorkingSetText;
     PPH_STRING PeakWorkingSetText;
@@ -256,11 +258,12 @@ typedef struct _PH_PROCESS_NODE
     PPH_STRING IoRoRateText;
     PPH_STRING IoWRateText;
     PPH_STRING StartTimeText;
-    WCHAR TotalCpuTimeText[PH_TIMESPAN_STR_LEN_1];
-    WCHAR KernelCpuTimeText[PH_TIMESPAN_STR_LEN_1];
-    WCHAR UserCpuTimeText[PH_TIMESPAN_STR_LEN_1];
+    PPH_STRING TotalCpuTimeText;
+    PPH_STRING KernelCpuTimeText;
+    PPH_STRING UserCpuTimeText;
     PPH_STRING RelativeStartTimeText;
     PPH_STRING WindowTitleText;
+    PPH_STRING DepStatusText;
     PPH_STRING CyclesText;
     PPH_STRING CyclesDeltaText;
     PPH_STRING ContextSwitchesText;
@@ -279,7 +282,6 @@ typedef struct _PH_PROCESS_NODE
     PPH_STRING FileSizeText;
     PPH_STRING SubprocessCountText;
     PPH_STRING JobObjectIdText;
-    PPH_STRING ProtectionText;
     PPH_STRING DesktopInfoText;
     PPH_STRING CpuCoreUsageText;
     PPH_STRING ImageCoherencyText;
@@ -295,6 +297,9 @@ typedef struct _PH_PROCESS_NODE
     PPH_STRING GrantedAccessText;
     PPH_STRING TlsBitmapDeltaText;
     PPH_STRING ReferenceCountText;
+    PPH_STRING LxssProcessIdText;
+    PPH_STRING ProcessStartKeyText;
+    PPH_STRING MitigationPoliciesText;
 
     // Graph buffers
     PH_GRAPH_BUFFERS CpuGraphBuffers;
@@ -382,16 +387,18 @@ PhGetSelectedProcessItem(
     VOID
     );
 
+_Success_(return)
 PHAPPAPI
-VOID
+BOOLEAN
 NTAPI
 PhGetSelectedProcessItems(
     _Out_ PPH_PROCESS_ITEM **Processes,
     _Out_ PULONG NumberOfProcesses
     );
 
+_Success_(return)
 PHAPPAPI
-VOID
+BOOLEAN
 NTAPI
 PhGetSelectedProcessNodes(
     _Out_ PPH_PROCESS_NODE** Nodes,

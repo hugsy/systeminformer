@@ -121,7 +121,7 @@ PPH_MODULE_PROVIDER PhCreateModuleProvider(
 
     if (PH_IS_REAL_PROCESS_ID(ProcessId))
     {
-        static ACCESS_MASK accesses[] =
+        static const ACCESS_MASK accesses[] =
         {
             PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, // Try to get a handle with query information + vm read access. (wj32)
             PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, // Try to get a handle with query limited information + vm read access. (wj32)
@@ -307,7 +307,7 @@ BOOLEAN NTAPI PhpModuleHashtableEqualFunction(
     {
         return ((entry1->BaseAddress == entry2->BaseAddress) &&
                 (entry1->EnclaveBaseAddress == entry2->EnclaveBaseAddress) &&
-                PhEqualString(entry1->FileName, entry2->FileName, TRUE));
+                PhEqualString(entry1->FileName, entry2->FileName, FALSE));
     }
     else
     {
@@ -463,27 +463,33 @@ NTSTATUS PhpModuleQueryWorker(
                 ULONG debugEntryLength;
                 PVOID debugEntry;
 
-                moduleItem->ImageMachine = remoteMappedImage.NtHeaders->FileHeader.Machine;
-                PhGetRemoteMappedImageCHPEVersionEx(&remoteMappedImage, readVirtualMemoryCallback, &moduleItem->ImageCHPEVersion);
-
-                moduleItem->ImageTimeDateStamp = remoteMappedImage.NtHeaders->FileHeader.TimeDateStamp;
-                moduleItem->ImageCharacteristics = remoteMappedImage.NtHeaders->FileHeader.Characteristics;
+                PhGetRemoteMappedImageCHPEVersionEx(
+                    &remoteMappedImage,
+                    readVirtualMemoryCallback,
+                    &moduleItem->ImageCHPEVersion
+                    );
 
                 if (remoteMappedImage.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
                 {
-                    PIMAGE_OPTIONAL_HEADER32 optionalHeader = (PIMAGE_OPTIONAL_HEADER32)&remoteMappedImage.NtHeaders->OptionalHeader;
+                    PIMAGE_OPTIONAL_HEADER32 optionalHeader = (PIMAGE_OPTIONAL_HEADER32)&remoteMappedImage.NtHeaders32->OptionalHeader;
 
                     imageBase = UlongToPtr(optionalHeader->ImageBase);
                     entryPoint = optionalHeader->AddressOfEntryPoint;
                     moduleItem->ImageDllCharacteristics = optionalHeader->DllCharacteristics;
+                    moduleItem->ImageMachine = remoteMappedImage.NtHeaders32->FileHeader.Machine;
+                    moduleItem->ImageTimeDateStamp = remoteMappedImage.NtHeaders32->FileHeader.TimeDateStamp;
+                    moduleItem->ImageCharacteristics = remoteMappedImage.NtHeaders32->FileHeader.Characteristics;
                 }
                 else if (remoteMappedImage.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
                 {
-                    PIMAGE_OPTIONAL_HEADER64 optionalHeader = (PIMAGE_OPTIONAL_HEADER64)&remoteMappedImage.NtHeaders->OptionalHeader;
+                    PIMAGE_OPTIONAL_HEADER64 optionalHeader = (PIMAGE_OPTIONAL_HEADER64)&remoteMappedImage.NtHeaders64->OptionalHeader;
 
                     imageBase = (PVOID)optionalHeader->ImageBase;
                     entryPoint = optionalHeader->AddressOfEntryPoint;
                     moduleItem->ImageDllCharacteristics = optionalHeader->DllCharacteristics;
+                    moduleItem->ImageMachine = remoteMappedImage.NtHeaders64->FileHeader.Machine;
+                    moduleItem->ImageTimeDateStamp = remoteMappedImage.NtHeaders64->FileHeader.TimeDateStamp;
+                    moduleItem->ImageCharacteristics = remoteMappedImage.NtHeaders64->FileHeader.Characteristics;
                 }
 
                 if (moduleItem->BaseAddress != imageBase)
@@ -517,7 +523,7 @@ NTSTATUS PhpModuleQueryWorker(
                     if (characteristics != ULONG_MAX)
                         moduleItem->ImageDllCharacteristicsEx = characteristics;
 
-                    PhFree(debugEntry);
+                    PhFreePage(debugEntry);
                 }
 
                 if (!NT_SUCCESS(PhGetRemoteMappedImageGuardFlagsEx(
@@ -542,7 +548,7 @@ NTSTATUS PhpModuleQueryWorker(
                     ULONG entryPoint = 0;
                     USHORT characteristics = 0;
                     PIMAGE_DATA_DIRECTORY dataDirectory;
-                    PH_MAPPED_IMAGE_CFG cfgConfig = { 0 };
+                    PH_MAPPED_IMAGE_CFG cfgConfig = { NULL };
 
                     moduleItem->ImageMachine = mappedImage.NtHeaders->FileHeader.Machine;
                     moduleItem->ImageCHPEVersion = PhGetMappedImageCHPEVersion(&mappedImage);
@@ -728,7 +734,7 @@ VOID PhModuleProviderUpdate(
 
                 if ((*moduleItem)->BaseAddress == module->BaseAddress &&
                     (*moduleItem)->EnclaveBaseAddress == module->EnclaveBaseAddress &&
-                    PhEqualString((*moduleItem)->FileName, module->FileName, TRUE))
+                    PhEqualString((*moduleItem)->FileName, module->FileName, FALSE))
                 {
                     found = TRUE;
                     break;
@@ -864,7 +870,7 @@ VOID PhModuleProviderUpdate(
 
             if (!moduleProvider->HaveFirst)
             {
-                if (WindowsVersion < WINDOWS_10)
+                if (WindowsVersion < WINDOWS_8)
                 {
                     moduleItem->IsFirst = i == 0;
                     moduleProvider->HaveFirst = TRUE;
@@ -974,8 +980,9 @@ UpdateExit:
     PhInvokeCallback(&moduleProvider->UpdatedEvent, NULL);
 }
 
-static PH_KEY_VALUE_PAIR PhModuleTypePairs[] =
+static CONST PH_KEY_VALUE_PAIR PhModuleTypePairs[] =
 {
+    SIP(SREF(L"Unknown"), PH_MODULE_TYPE_UNKNOWN),
     SIP(SREF(L"DLL"), PH_MODULE_TYPE_MODULE),
     SIP(SREF(L"Mapped file"), PH_MODULE_TYPE_MAPPED_FILE),
     SIP(SREF(L"WOW64 DLL"), PH_MODULE_TYPE_WOW64_MODULE),
@@ -985,17 +992,17 @@ static PH_KEY_VALUE_PAIR PhModuleTypePairs[] =
     SIP(SREF(L"Enclave module"), PH_MODULE_TYPE_ENCLAVE_MODULE),
 };
 
-PPH_STRINGREF PhGetModuleTypeName(
+PCPH_STRINGREF PhGetModuleTypeName(
     _In_ ULONG ModuleType
     )
 {
-    PPH_STRINGREF string;
+    PCPH_STRINGREF string;
 
-    if (PhFindStringSiKeyValuePairs(
+    if (PhIndexStringRefSiKeyValuePairs(
         PhModuleTypePairs,
         sizeof(PhModuleTypePairs),
         ModuleType,
-        (PWSTR*)&string
+        &string
         ))
     {
         return string;
@@ -1004,7 +1011,7 @@ PPH_STRINGREF PhGetModuleTypeName(
     return NULL;
 }
 
-static PH_KEY_VALUE_PAIR PhModuleLoadReasonTypePairs[] =
+static CONST PH_KEY_VALUE_PAIR PhModuleLoadReasonTypePairs[] =
 {
     SIP(SREF(L"Static dependency"), LoadReasonStaticDependency),
     SIP(SREF(L"Static forwarder dependency"), LoadReasonStaticForwarderDependency),
@@ -1019,26 +1026,26 @@ static PH_KEY_VALUE_PAIR PhModuleLoadReasonTypePairs[] =
     SIP(SREF(L"Unknown"), LoadReasonUnknown),
 };
 
-PPH_STRINGREF PhGetModuleLoadReasonTypeName(
+PCPH_STRINGREF PhGetModuleLoadReasonTypeName(
     _In_ USHORT LoadReason
     )
 {
-    PPH_STRINGREF string;
+    PCPH_STRINGREF string;
 
-    if (PhFindStringSiKeyValuePairs(
+    if (PhIndexStringRefSiKeyValuePairs(
         PhModuleLoadReasonTypePairs,
         sizeof(PhModuleLoadReasonTypePairs),
         LoadReason,
-        (PWSTR*)&string
+        &string
         ))
     {
         return string;
     }
 
-    return NULL;
+    return (PCPH_STRINGREF)PhModuleLoadReasonTypePairs[10].Key;
 }
 
-static PH_KEY_VALUE_PAIR PhModuleEnclaveTypePairs[] =
+static CONST PH_KEY_VALUE_PAIR PhModuleEnclaveTypePairs[] =
 {
     SIP(SREF(L"Unknown"), 0),
     SIP(SREF(L"SGX"), ENCLAVE_TYPE_SGX),
@@ -1046,17 +1053,17 @@ static PH_KEY_VALUE_PAIR PhModuleEnclaveTypePairs[] =
     SIP(SREF(L"VBS"), ENCLAVE_TYPE_VBS)
 };
 
-PPH_STRINGREF PhGetModuleEnclaveTypeName(
+PCPH_STRINGREF PhGetModuleEnclaveTypeName(
     _In_ ULONG EnclaveType
     )
 {
-    PPH_STRINGREF string;
+    PCPH_STRINGREF string;
 
-    if (PhFindStringSiKeyValuePairs(
+    if (PhFindStringRefSiKeyValuePairs(
         PhModuleEnclaveTypePairs,
         sizeof(PhModuleEnclaveTypePairs),
         EnclaveType,
-        (PWSTR*)&string
+        &string
         ))
     {
         return string;
@@ -1166,13 +1173,7 @@ NTSTATUS PhEnumGenericEnclaveModules(
     NTSTATUS status;
     PVOID ntLdrEnclaveList;
 
-    ntLdrEnclaveList = InterlockedCompareExchangePointer(
-        &PhLdrEnclaveList,
-        NULL,
-        NULL
-        );
-
-    if (ntLdrEnclaveList)
+    if (ntLdrEnclaveList = ReadPointerAcquire(&PhLdrEnclaveList))
     {
         status = PhEnumProcessEnclaves(
             ProcessHandle,
@@ -1204,7 +1205,7 @@ NTSTATUS PhModuleEnclaveListInitialize(
 
     if (PhGetLoaderEntryDataZ(L"ntdll.dll", &baseAddress, &sizeOfImage, &fileName))
     {
-        PhLoadModuleSymbolProvider(symbolProvider, fileName, (ULONG64)baseAddress, sizeOfImage);
+        PhLoadModuleSymbolProvider(symbolProvider, fileName, baseAddress, sizeOfImage);
         PhDereferenceObject(fileName);
     }
 

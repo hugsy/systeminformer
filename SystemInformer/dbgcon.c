@@ -24,6 +24,7 @@
 #include <mapldr.h>
 #include <workqueue.h>
 #include <workqueuep.h>
+#include <phconsole.h>
 
 #include <procprv.h>
 #include <srvprv.h>
@@ -113,7 +114,7 @@ VOID PhCloseDebugConsole(
     _wfreopen(L"NUL", L"w", stderr);
     _wfreopen(L"NUL", L"r", stdin);
 
-    FreeConsole();
+    PhFreeConsole();
 }
 
 static BOOL ConsoleHandlerRoutine(
@@ -132,30 +133,12 @@ static BOOL ConsoleHandlerRoutine(
     return FALSE;
 }
 
-static BOOLEAN NTAPI PhpLoadCurrentProcessSymbolsCallback(
-    _In_ PPH_MODULE_INFO Module,
-    _In_ PVOID Context
-    )
-{
-    if (!PhLoadModuleSymbolProvider(
-        (PPH_SYMBOL_PROVIDER)Context,
-        Module->FileName,
-        (ULONG64)Module->BaseAddress,
-        Module->Size
-        ))
-    {
-        wprintf(L"Unable to load symbols: %s\n", PhGetStringOrEmpty(Module->FileName));
-    }
-
-    return TRUE;
-}
-
 static PWSTR PhpGetSymbolForAddress(
     _In_ PVOID Address
     )
 {
     return PH_AUTO_T(PH_STRING, PhGetSymbolFromAddress(
-        DebugConsoleSymbolProvider, (ULONG64)Address, NULL, NULL, NULL, NULL
+        DebugConsoleSymbolProvider, Address, NULL, NULL, NULL, NULL
         ))->Buffer;
 }
 
@@ -430,7 +413,7 @@ static NTSTATUS PhpLeakEnumerationRoutine(
         {
             PPH_STRING symbol;
 
-            symbol = PhGetSymbolFromAddress(DebugConsoleSymbolProvider, (ULONG64)StackTrace[i], NULL, NULL, NULL, NULL);
+            symbol = PhGetSymbolFromAddress(DebugConsoleSymbolProvider, StackTrace[i], NULL, NULL, NULL, NULL);
 
             if (symbol)
             {
@@ -449,49 +432,6 @@ static NTSTATUS PhpLeakEnumerationRoutine(
     NumberOfLeaks++;
 
     return 0;
-}
-
-typedef struct _STOPWATCH
-{
-    LARGE_INTEGER StartCounter;
-    LARGE_INTEGER EndCounter;
-    LARGE_INTEGER Frequency;
-} STOPWATCH, *PSTOPWATCH;
-
-static VOID PhInitializeStopwatch(
-    _Out_ PSTOPWATCH Stopwatch
-    )
-{
-    Stopwatch->StartCounter.QuadPart = 0;
-    Stopwatch->EndCounter.QuadPart = 0;
-}
-
-static VOID PhStartStopwatch(
-    _Inout_ PSTOPWATCH Stopwatch
-    )
-{
-    PhQueryPerformanceCounter(&Stopwatch->StartCounter);
-    PhQueryPerformanceFrequency(&Stopwatch->Frequency);
-}
-
-static VOID PhStopStopwatch(
-    _Inout_ PSTOPWATCH Stopwatch
-    )
-{
-    PhQueryPerformanceCounter(&Stopwatch->EndCounter);
-}
-
-static ULONG PhGetMillisecondsStopwatch(
-    _In_ PSTOPWATCH Stopwatch
-    )
-{
-    LARGE_INTEGER countsPerMs;
-
-    countsPerMs = Stopwatch->Frequency;
-    countsPerMs.QuadPart /= 1000;
-
-    return (ULONG)((Stopwatch->EndCounter.QuadPart - Stopwatch->StartCounter.QuadPart) /
-        countsPerMs.QuadPart);
 }
 
 typedef VOID (FASTCALL *PPHF_RW_LOCK_FUNCTION)(
@@ -544,7 +484,7 @@ static NTSTATUS PhpRwLockTestThreadStart(
             for (m = 0; m < RW_READ_SPIN_ITERS; m++)
                 YieldProcessor();
 
-            if (RwWritersActive != 0)
+            if (ReadAcquire(&RwWritersActive) != 0)
             {
                 wprintf(L"[fail]: writers active in read zone!\n");
                 NtWaitForSingleObject(NtCurrentProcess(), FALSE, NULL);
@@ -570,7 +510,7 @@ static NTSTATUS PhpRwLockTestThreadStart(
                     for (m = 0; m < RW_WRITE_SPIN_ITERS; m++)
                         YieldProcessor();
 
-                    if (RwReadersActive != 0)
+                    if (ReadAcquire(&RwReadersActive) != 0)
                     {
                         wprintf(L"[fail]: readers active in write zone!\n");
                         NtWaitForSingleObject(NtCurrentProcess(), FALSE, NULL);
@@ -592,7 +532,7 @@ static VOID PhpTestRwLock(
 {
 #define RW_PROCESSORS 4
 
-    STOPWATCH stopwatch;
+    PH_STOPWATCH stopwatch;
     ULONG i;
     HANDLE threadHandles[RW_PROCESSORS];
 
@@ -642,6 +582,7 @@ static VOID PhpTestRwLock(
     wprintf(L"[strs] %s: %ums\n", Context->Name, PhGetMillisecondsStopwatch(&stopwatch));
 }
 
+_Acquires_exclusive_lock_(*CriticalSection)
 VOID FASTCALL PhfAcquireCriticalSection(
     _In_ PRTL_CRITICAL_SECTION CriticalSection
     )
@@ -649,6 +590,7 @@ VOID FASTCALL PhfAcquireCriticalSection(
     RtlEnterCriticalSection(CriticalSection);
 }
 
+_Releases_exclusive_lock_(*CriticalSection)
 VOID FASTCALL PhfReleaseCriticalSection(
     _In_ PRTL_CRITICAL_SECTION CriticalSection
     )
@@ -704,12 +646,9 @@ NTSTATUS PhpDebugConsoleThreadStart(
         }
     }
 
-    PhEnumGenericModules(
-        NtCurrentProcessId(),
-        NtCurrentProcess(),
-        0,
-        PhpLoadCurrentProcessSymbolsCallback,
-        DebugConsoleSymbolProvider
+    PhLoadSymbolProviderModules(
+        DebugConsoleSymbolProvider,
+        NtCurrentProcessId()
         );
 
 #ifdef DEBUG
@@ -721,8 +660,8 @@ NTSTATUS PhpDebugConsoleThreadStart(
 
     while (!exit)
     {
-        static PWSTR delims = L" \t";
-        static PWSTR commandDebugOnly = L"This command is not available on non-debug builds.\n";
+        static PCWSTR delims = L" \t";
+        static PCWSTR commandDebugOnly = L"This command is not available on non-debug builds.\n";
 
         WCHAR line[201];
         ULONG inputLength;
@@ -783,7 +722,7 @@ NTSTATUS PhpDebugConsoleThreadStart(
         }
         else if (PhEqualStringZ(command, L"testperf", TRUE))
         {
-            STOPWATCH stopwatch;
+            PH_STOPWATCH stopwatch;
             ULONG i;
             PPH_STRING testString;
             RTL_CRITICAL_SECTION testCriticalSection;
@@ -1467,7 +1406,7 @@ NTSTATUS PhpDebugConsoleThreadStart(
                     wprintf(L"Process item at %Ix: %s (%u)\n", (ULONG_PTR)process, process->ProcessName->Buffer, HandleToUlong(process->ProcessId));
                     wprintf(L"\tRecord at %Ix\n", (ULONG_PTR)process->Record);
                     wprintf(L"\tQuery handle %Ix\n", (ULONG_PTR)process->QueryHandle);
-                    wprintf(L"\tFile name at %Ix: %s\n", (ULONG_PTR)process->FileNameWin32, PhGetStringOrDefault(process->FileNameWin32, L"(null)"));
+                    wprintf(L"\tFile name at %Ix: %s\n", (ULONG_PTR)process->FileName, PhGetStringOrDefault(process->FileName, L"(null)"));
                     wprintf(L"\tCommand line at %Ix: %s\n", (ULONG_PTR)process->CommandLine, PhGetStringOrDefault(process->CommandLine, L"(null)"));
                     wprintf(L"\tFlags: %u\n", process->Flags);
                     wprintf(L"\n");

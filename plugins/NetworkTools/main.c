@@ -86,7 +86,7 @@ static BOOLEAN ParseNetworkAddress(
         // try parsing the address with RtlIpv4StringToAddressEx since it does support these formats (dmex)
         RemoteEndpoint->Address.InAddr.s_addr = addressInfo.Ipv4Address.sin_addr.s_addr;
         RemoteEndpoint->Port = _byteswap_ushort(addressInfo.Ipv4Address.sin_port);
-        RemoteEndpoint->Address.Type = PH_IPV4_NETWORK_TYPE;
+        RemoteEndpoint->Address.Type = PH_NETWORK_TYPE_IPV4;
         return TRUE;
     }
 
@@ -118,7 +118,7 @@ static BOOLEAN ParseNetworkAddress(
                 {
                     RemoteEndpoint->Address.InAddr.s_addr = ((PSOCKADDR_IN)i->ai_addr)->sin_addr.s_addr;
                     RemoteEndpoint->Port = _byteswap_ushort(((PSOCKADDR_IN)i->ai_addr)->sin_port);
-                    RemoteEndpoint->Address.Type = PH_IPV4_NETWORK_TYPE;
+                    RemoteEndpoint->Address.Type = PH_NETWORK_TYPE_IPV4;
                     success = TRUE;
                     break;
                 }
@@ -131,7 +131,7 @@ static BOOLEAN ParseNetworkAddress(
                         sizeof(((PSOCKADDR_IN6)i->ai_addr)->sin6_addr.s6_addr)
                         );
                     RemoteEndpoint->Port = _byteswap_ushort(((PSOCKADDR_IN6)i->ai_addr)->sin6_port);
-                    RemoteEndpoint->Address.Type = PH_IPV6_NETWORK_TYPE;
+                    RemoteEndpoint->Address.Type = PH_NETWORK_TYPE_IPV6;
                     success = TRUE;
                     break;
                 }
@@ -150,7 +150,7 @@ static BOOLEAN ParseNetworkAddress(
     {
         RemoteEndpoint->Address.InAddr.s_addr = addressInfo.Ipv4Address.sin_addr.s_addr;
         RemoteEndpoint->Port = _byteswap_ushort(addressInfo.Ipv4Address.sin_port);
-        RemoteEndpoint->Address.Type = PH_IPV4_NETWORK_TYPE;
+        RemoteEndpoint->Address.Type = PH_NETWORK_TYPE_IPV4;
         return TRUE;
     }
 
@@ -163,7 +163,7 @@ static BOOLEAN ParseNetworkAddress(
             sizeof(addressInfo.Ipv6Address.sin6_addr.s6_addr)
             );
         RemoteEndpoint->Port = _byteswap_ushort(addressInfo.Ipv6Address.sin6_port);
-        RemoteEndpoint->Address.Type = PH_IPV6_NETWORK_TYPE;
+        RemoteEndpoint->Address.Type = PH_NETWORK_TYPE_IPV6;
         return TRUE;
     }
 
@@ -193,10 +193,10 @@ VOID NTAPI MenuItemCallback(
             PPH_STRING selectedChoice = NULL;
             PH_IP_ENDPOINT remoteEndpoint = { 0 };
 
-            while (PhaChoiceDialog(
+            while (PhChoiceDialog(
                 menuItem->OwnerWindow,
-                L"Ping",
-                L"Hostname or IP address:",
+                L"Ping the Hostname or IP Address",
+                L"You can use an IPv4 or IPv6 address as the target or a fully qualified domain name (FQDN) or a website URL as the target.",
                 NULL,
                 0,
                 NULL,
@@ -219,10 +219,10 @@ VOID NTAPI MenuItemCallback(
             PPH_STRING selectedChoice = NULL;
             PH_IP_ENDPOINT remoteEndpoint = { 0 };
 
-            while (PhaChoiceDialog(
+            while (PhChoiceDialog(
                 menuItem->OwnerWindow,
-                L"Tracert",
-                L"Hostname or IP address:",
+                L"Tracert the Hostname or IP Address",
+                L"You can use an IPv4 or IPv6 address as the target or a fully qualified domain name (FQDN) or a website URL as the target.",
                 NULL,
                 0,
                 NULL,
@@ -245,10 +245,10 @@ VOID NTAPI MenuItemCallback(
             PPH_STRING selectedChoice = NULL;
             PH_IP_ENDPOINT remoteEndpoint = { 0 };
 
-            while (PhaChoiceDialog(
+            while (PhChoiceDialog(
                 menuItem->OwnerWindow,
-                L"Whois",
-                L"Hostname or IP address:",
+                L"Whois the Hostname or IP Address",
+                L"You can use an IPv4 or IPv6 address as the target or a fully qualified domain name (FQDN) or a website URL as the target.",
                 NULL,
                 0,
                 NULL,
@@ -321,7 +321,7 @@ VOID NTAPI NetworkMenuInitializingCallback(
             PhSetDisabledEMenuItem(traceMenu);
             PhSetDisabledEMenuItem(pingMenu);
         }
-        else if (networkItem->RemoteEndpoint.Address.Type == PH_IPV4_NETWORK_TYPE)
+        else if (networkItem->RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV4)
         {
             if (
                 IN4_IS_ADDR_UNSPECIFIED(&networkItem->RemoteEndpoint.Address.InAddr) ||
@@ -338,7 +338,7 @@ VOID NTAPI NetworkMenuInitializingCallback(
                 PhSetDisabledEMenuItem(whoisMenu);
             }
         }
-        else  if (networkItem->RemoteEndpoint.Address.Type == PH_IPV6_NETWORK_TYPE)
+        else  if (networkItem->RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV6)
         {
             if (
                 IN6_IS_ADDR_UNSPECIFIED(&networkItem->RemoteEndpoint.Address.In6Addr) ||
@@ -519,9 +519,9 @@ VOID PhpNetworkItemToRow(
     )
 {
     Row->State = NetworkItem->State;
-    Row->dwLocalAddr = NetworkItem->LocalEndpoint.Address.Ipv4;
+    Row->dwLocalAddr = NetworkItem->LocalEndpoint.Address.InAddr.s_addr;
     Row->dwLocalPort = _byteswap_ushort((USHORT)NetworkItem->LocalEndpoint.Port);
-    Row->dwRemoteAddr = NetworkItem->RemoteEndpoint.Address.Ipv4;
+    Row->dwRemoteAddr = NetworkItem->RemoteEndpoint.Address.InAddr.s_addr;
     Row->dwRemotePort = _byteswap_ushort((USHORT)NetworkItem->RemoteEndpoint.Port);
 }
 
@@ -570,7 +570,7 @@ VOID NTAPI NetworkNodeCreateCallback(
     {
         if (NetworkExtensionEnabled)
         {
-            if (networkNode->NetworkItem->ProtocolType == PH_TCP4_NETWORK_PROTOCOL)
+            if (networkNode->NetworkItem->ProtocolType == PH_NETWORK_PROTOCOL_TCP4)
             {
                 MIB_TCPROW tcpRow;
                 TCP_ESTATS_DATA_RW_v0 dataRw;
@@ -584,7 +584,7 @@ VOID NTAPI NetworkNodeCreateCallback(
                 SetPerTcpConnectionEStats(&tcpRow, TcpConnectionEstatsData, (PUCHAR)&dataRw, 0, sizeof(TCP_ESTATS_DATA_RW_v0), 0);
                 SetPerTcpConnectionEStats(&tcpRow, TcpConnectionEstatsPath, (PUCHAR)&pathRw, 0, sizeof(TCP_ESTATS_PATH_RW_v0), 0);
             }
-            else if (networkNode->NetworkItem->ProtocolType == PH_TCP6_NETWORK_PROTOCOL)
+            else if (networkNode->NetworkItem->ProtocolType == PH_NETWORK_PROTOCOL_TCP6)
             {
                 MIB_TCP6ROW tcp6Row;
                 TCP_ESTATS_DATA_RW_v0 dataRw;
@@ -830,21 +830,17 @@ BOOLEAN NetworkToolsGeoIpFlushCache(
 }
 
 VOID ProcessesUpdatedCallback(
-    _In_opt_ PVOID Parameter,
+    _In_ PVOID Parameter,
     _In_opt_ PVOID Context
     )
 {
-    static ULONG ProcessesUpdatedCount = 0;
     PLIST_ENTRY listEntry;
 
     if (!NetworkExtensionEnabled)
         return;
 
-    if (ProcessesUpdatedCount != 3)
-    {
-        ProcessesUpdatedCount++;
+    if (PtrToUlong(Parameter) < 3)
         return;
-    }
 
     NetworkToolsGeoIpFlushCache();
 
@@ -859,7 +855,7 @@ VOID ProcessesUpdatedCallback(
         if (!extension || !extension->StatsEnabled)
             continue;
 
-        if (extension->NetworkItem->ProtocolType == PH_TCP4_NETWORK_PROTOCOL)
+        if (extension->NetworkItem->ProtocolType == PH_NETWORK_PROTOCOL_TCP4)
         {
             MIB_TCPROW tcpRow;
             TCP_ESTATS_DATA_RW_v0 dataRw;
@@ -917,7 +913,7 @@ VOID ProcessesUpdatedCallback(
                 }
             }
         }
-        else if (extension->NetworkItem->ProtocolType == PH_TCP6_NETWORK_PROTOCOL)
+        else if (extension->NetworkItem->ProtocolType == PH_NETWORK_PROTOCOL_TCP6)
         {
             MIB_TCP6ROW tcp6Row;
             TCP_ESTATS_DATA_RW_v0 dataRw;
@@ -1017,7 +1013,6 @@ LOGICAL DllMain(
                 return FALSE;
 
             info->DisplayName = L"Network Tools";
-            info->Author = L"dmex, wj32";
             info->Description = L"Provides ping, traceroute and whois for network connections.";
             info->Interface = &PluginInterface;
 

@@ -29,6 +29,8 @@ PH_CALLBACK_REGISTRATION MainWindowShowingCallbackRegistration;
 PH_CALLBACK_REGISTRATION ProcessesUpdatedCallbackRegistration;
 PH_CALLBACK_REGISTRATION ProcessPropertiesInitializingCallbackRegistration;
 PH_CALLBACK_REGISTRATION HandlePropertiesInitializingCallbackRegistration;
+PH_CALLBACK_REGISTRATION HandlePropertiesWindowInitializedCallbackRegistration;
+PH_CALLBACK_REGISTRATION HandlePropertiesWindowUninitializingCallbackRegistration;
 PH_CALLBACK_REGISTRATION ProcessMenuInitializingCallbackRegistration;
 PH_CALLBACK_REGISTRATION ThreadMenuInitializingCallbackRegistration;
 PH_CALLBACK_REGISTRATION ModuleMenuInitializingCallbackRegistration;
@@ -172,6 +174,11 @@ VOID NTAPI MenuItemCallback(
             EtShowPipeEnumDialog(menuItem->OwnerWindow);
         }
         break;
+    case ID_SMBIOS:
+        {
+            EtShowSMBIOSDialog(menuItem->OwnerWindow);
+        }
+        break;
     case ID_FIRMWARE:
         {
             EtShowFirmwareDialog(menuItem->OwnerWindow);
@@ -242,6 +249,7 @@ VOID NTAPI MainMenuInitializingCallback(
 
     PhInsertEMenuItem(systemMenu, PhPluginCreateEMenuItem(PluginInstance, 0, ID_POOL_TABLE, L"Poo&l Table", NULL), ULONG_MAX);
     PhInsertEMenuItem(systemMenu, PhPluginCreateEMenuItem(PluginInstance, 0, ID_OBJMGR, L"&Object Manager", NULL), ULONG_MAX);
+    PhInsertEMenuItem(systemMenu, PhPluginCreateEMenuItem(PluginInstance, 0, ID_SMBIOS, L"SM&BIOS", NULL), ULONG_MAX);
     PhInsertEMenuItem(systemMenu, bootMenuItem = PhPluginCreateEMenuItem(PluginInstance, 0, ID_FIRMWARE, L"Firm&ware Table", NULL), ULONG_MAX);
     PhInsertEMenuItem(systemMenu, tpmMenuItem = PhPluginCreateEMenuItem(PluginInstance, 0, ID_TPM, L"&Trusted Platform Module", NULL), ULONG_MAX);
     PhInsertEMenuItem(systemMenu, PhPluginCreateEMenuItem(PluginInstance, 0, ID_PIPE_ENUM, L"&Named Pipes", NULL), ULONG_MAX);
@@ -252,15 +260,14 @@ VOID NTAPI MainMenuInitializingCallback(
     if (!PhGetOwnTokenAttributes().Elevated)
     {
         bootMenuItem->Flags |= PH_EMENU_DISABLED;
-        tpmMenuItem->Flags |= PH_EMENU_DISABLED;
         reparsePointsMenu->Flags |= PH_EMENU_DISABLED;
         reparseObjIdMenu->Flags |= PH_EMENU_DISABLED;
         reparseSsdlMenu->Flags |= PH_EMENU_DISABLED;
     }
 
-    if (EtWindowsVersion < WINDOWS_8)
+    if (EtWindowsVersion < WINDOWS_8 || !EtTpmIsReady())
     {
-        PhSetEnabledEMenuItem(tpmMenuItem, FALSE);
+        tpmMenuItem->Flags |= PH_EMENU_DISABLED;
     }
 }
 
@@ -309,6 +316,24 @@ VOID NTAPI HandlePropertiesInitializingCallback(
 {
     if (Parameter)
         EtHandlePropertiesInitializing(Parameter);
+}
+
+VOID NTAPI HandlePropertiesWindowInitializedCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    if (Parameter)
+        EtHandlePropertiesWindowInitialized(Parameter);
+}
+
+VOID NTAPI HandlePropertiesWindowUninitializingCallback(
+    _In_opt_ PVOID Parameter,
+    _In_opt_ PVOID Context
+    )
+{
+    if (Parameter)
+        EtHandlePropertiesWindowUninitializing(Parameter);
 }
 
 VOID NTAPI ProcessMenuInitializingCallback(
@@ -1035,10 +1060,27 @@ VOID NTAPI ProcessStatsEventCallback(
     }
 }
 
+VOID EtLoadSettingsFirstRun(
+    VOID
+    )
+{
+    if (PhGetIntegerSetting(SETTING_NAME_FIRST_RUN))
+    {
+        if (PhGetUserLocaleInfoBool(LOCALE_IMEASURE))
+        {
+            PhSetIntegerSetting(SETTING_NAME_ENABLE_FAHRENHEIT, TRUE);
+        }
+
+        PhSetIntegerSetting(SETTING_NAME_FIRST_RUN, FALSE);
+    }
+}
+
 VOID EtLoadSettings(
     VOID
     )
 {
+    EtLoadSettingsFirstRun();
+
     EtUpdateInterval = PhGetIntegerSetting(L"UpdateInterval");
     EtMaxPrecisionUnit = (USHORT)PhGetIntegerSetting(L"MaxPrecisionUnit");
     EtGraphShowText = !!PhGetIntegerSetting(L"GraphShowText");
@@ -1249,6 +1291,7 @@ LOGICAL DllMain(
             PPH_PLUGIN_INFORMATION info;
             PH_SETTING_CREATE settings[] =
             {
+                { IntegerSettingType, SETTING_NAME_FIRST_RUN, L"1" },
                 { StringSettingType, SETTING_NAME_DISK_TREE_LIST_COLUMNS, L"" },
                 { IntegerPairSettingType, SETTING_NAME_DISK_TREE_LIST_SORT, L"4,2" }, // 4, DescendingSortOrder
                 { IntegerSettingType, SETTING_NAME_ENABLE_GPUPERFCOUNTERS, L"1" },
@@ -1265,6 +1308,8 @@ LOGICAL DllMain(
                 { IntegerPairSettingType, SETTING_NAME_MODULE_SERVICES_WINDOW_POSITION, L"0,0" },
                 { ScalableIntegerPairSettingType, SETTING_NAME_MODULE_SERVICES_WINDOW_SIZE, L"@96|850,490" },
                 { StringSettingType, SETTING_NAME_MODULE_SERVICES_COLUMNS, L"" },
+                { IntegerPairSettingType, SETTING_NAME_GPU_DETAILS_WINDOW_POSITION, L"0,0" },
+                { ScalableIntegerPairSettingType, SETTING_NAME_GPU_DETAILS_WINDOW_SIZE, L"@96|850,490" },
                 { IntegerPairSettingType, SETTING_NAME_GPU_NODES_WINDOW_POSITION, L"0,0" },
                 { ScalableIntegerPairSettingType, SETTING_NAME_GPU_NODES_WINDOW_SIZE, L"@96|850,490" },
                 { IntegerPairSettingType, SETTING_NAME_NPU_NODES_WINDOW_POSITION, L"0,0" },
@@ -1278,7 +1323,7 @@ LOGICAL DllMain(
                 { IntegerPairSettingType, SETTING_NAME_FW_TREE_LIST_SORT, L"12,2" },
                 { IntegerSettingType, SETTING_NAME_FW_IGNORE_PORTSCAN, L"0" },
                 { IntegerSettingType, SETTING_NAME_FW_IGNORE_LOOPBACK, L"1" },
-                { IntegerSettingType, SETTING_NAME_FW_IGNORE_ALLOW, L"0" },
+                { IntegerSettingType, SETTING_NAME_FW_IGNORE_ALLOW, L"1" },
                 { StringSettingType, SETTING_NAME_FW_SESSION_GUID, L"" },
                 { IntegerSettingType, SETTING_NAME_SHOWSYSINFOGRAPH, L"1" },
                 { StringSettingType, SETTING_NAME_WCT_TREE_LIST_COLUMNS, L"" },
@@ -1297,8 +1342,17 @@ LOGICAL DllMain(
                 { ScalableIntegerPairSettingType, SETTING_NAME_FIRMWARE_WINDOW_SIZE, L"@96|490,340" },
                 { StringSettingType, SETTING_NAME_FIRMWARE_LISTVIEW_COLUMNS, L"" },
                 { IntegerPairSettingType, SETTING_NAME_OBJMGR_WINDOW_POSITION, L"0,0" },
-                { ScalableIntegerPairSettingType, SETTING_NAME_OBJMGR_WINDOW_SIZE, L"@96|1065,627" },
+                { ScalableIntegerPairSettingType, SETTING_NAME_OBJMGR_WINDOW_SIZE, L"@96|1237,627" },
                 { StringSettingType, SETTING_NAME_OBJMGR_COLUMNS, L"" },
+                { IntegerPairSettingType, SETTING_NAME_OBJMGR_LIST_SORT, L"0,0" },
+                { IntegerPairSettingType, SETTING_NAME_OBJMGR_PROPERTIES_WINDOW_POSITION, L"0,0" },
+                { StringSettingType, SETTING_NAME_OBJMGR_LAST_PATH, L"\\" },
+                { StringSettingType, SETTING_NAME_OBJMGR_HISTORY,
+                    L"\\" ET_OBJMGR_HISTORY_SEPARATOR
+                    L"\\BaseNamedObjects" ET_OBJMGR_HISTORY_SEPARATOR
+                    L"\\Device" ET_OBJMGR_HISTORY_SEPARATOR
+                    L"\\KernelObjects" ET_OBJMGR_HISTORY_SEPARATOR
+                    L"\\ObjectTypes" },
                 { IntegerPairSettingType, SETTING_NAME_POOL_WINDOW_POSITION, L"0,0" },
                 { ScalableIntegerPairSettingType, SETTING_NAME_POOL_WINDOW_SIZE, L"@96|510,380" },
                 { StringSettingType, SETTING_NAME_POOL_TREE_LIST_COLUMNS, L"" },
@@ -1308,6 +1362,10 @@ LOGICAL DllMain(
                 { IntegerPairSettingType, SETTING_NAME_TPM_WINDOW_POSITION, L"0,0" },
                 { ScalableIntegerPairSettingType, SETTING_NAME_TPM_WINDOW_SIZE, L"@96|490,340" },
                 { StringSettingType, SETTING_NAME_TPM_LISTVIEW_COLUMNS, L"" },
+                { IntegerPairSettingType, SETTING_NAME_SMBIOS_WINDOW_POSITION, L"0,0" },
+                { ScalableIntegerPairSettingType, SETTING_NAME_SMBIOS_WINDOW_SIZE, L"@96|490,340" },
+                { StringSettingType, SETTING_NAME_SMBIOS_INFO_COLUMNS, L"" },
+                { IntegerSettingType, SETTING_NAME_SMBIOS_SHOW_UNDEFINED_TYPES, L"0" },
             };
 
             PluginInstance = PhRegisterPlugin(PLUGIN_NAME, Instance, &info);
@@ -1316,7 +1374,6 @@ LOGICAL DllMain(
                 return FALSE;
 
             info->DisplayName = L"Extended Tools";
-            info->Author = L"dmex, wj32";
             info->Description = L"Extended functionality for Windows 7 and above, including ETW, GPU, Disk and Firewall monitoring tabs.";
             info->Interface = &PluginInterface;
 
@@ -1387,6 +1444,18 @@ LOGICAL DllMain(
                 HandlePropertiesInitializingCallback,
                 NULL,
                 &HandlePropertiesInitializingCallbackRegistration
+                );
+            PhRegisterCallback(
+                PhGetGeneralCallback(GeneralCallbackHandlePropertiesWindowInitialized),
+                HandlePropertiesWindowInitializedCallback,
+                NULL,
+                &HandlePropertiesWindowInitializedCallbackRegistration
+                );
+            PhRegisterCallback(
+                PhGetGeneralCallback(GeneralCallbackHandlePropertiesWindowUninitializing),
+                HandlePropertiesWindowUninitializingCallback,
+                NULL,
+                &HandlePropertiesWindowUninitializingCallbackRegistration
                 );
             PhRegisterCallback(
                 PhGetGeneralCallback(GeneralCallbackProcessMenuInitializing),

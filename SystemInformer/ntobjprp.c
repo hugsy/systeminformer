@@ -562,10 +562,21 @@ VOID PhpEnumerateMappingsEntries(
 
     if (KsiLevel() < KphLevelMed)
     {
-        PhShowKsiNotConnected(
-            Context->WindowHandle,
+        PPH_STRING statusText;
+        HWND statusWindow;
+
+        statusWindow = GetDlgItem(Context->WindowHandle, IDC_TEXT);
+        ShowWindow(Context->ListViewHandle, SW_HIDE);
+        ShowWindow(statusWindow, SW_SHOW);
+
+        statusText = PhGetKsiNotConnectedString(
             L"Viewing active mappings requires a connection to the kernel driver."
             );
+        PhSetWindowText(statusWindow, PhGetString(statusText));
+        //SendMessage(statusWindow, EM_SETSEL, (WPARAM)-1, (LPARAM)-1);
+        PhSetDialogFocus(GetParent(Context->WindowHandle), GetDlgItem(GetParent(Context->WindowHandle), IDCANCEL));
+        PhDereferenceObject(statusText);
+
         return;
     }
 
@@ -623,6 +634,8 @@ VOID PhpEnumerateMappingsEntries(
 
         PhPrintPointer(value, info->EndVa);
         PhSetListViewSubItem(Context->ListViewHandle, lvItemIndex, 2, value);
+
+        PhSetListViewSubItem(Context->ListViewHandle, lvItemIndex, 3, PhaFormatSize((ULONG64)info->EndVa - (ULONG64)info->StartVa, ULONG_MAX)->Buffer);
     }
 }
 
@@ -640,7 +653,7 @@ VOID PhpShowProcessForMapping(
         // TODO would like this to show the process properties
         // memory tab and select the info->StartVa
         //
-        ProcessHacker_ShowProcessProperties(processItem);
+        SystemInformer_ShowProcessProperties(processItem);
         PhDereferenceObject(processItem);
     }
     else
@@ -675,6 +688,7 @@ INT_PTR CALLBACK PhpMappingsPageProc(
             PhAddListViewColumn(context->ListViewHandle, 0, 0, 0, LVCFMT_LEFT, 140, L"View");
             PhAddListViewColumn(context->ListViewHandle, 1, 1, 1, LVCFMT_LEFT, 100, L"Start");
             PhAddListViewColumn(context->ListViewHandle, 2, 2, 2, LVCFMT_LEFT, 100, L"End");
+            PhAddListViewColumn(context->ListViewHandle, 3, 3, 3, LVCFMT_RIGHT, 60, L"Size");
             PhSetExtendedListView(context->ListViewHandle);
 
             PhpEnumerateMappingsEntries(context);
@@ -706,7 +720,6 @@ INT_PTR CALLBACK PhpMappingsPageProc(
                 PhGetListViewContextMenuPoint(context->ListViewHandle, &point);
 
             menu = PhCreateEMenu();
-
             if (info && info->ViewMapType == VIEW_MAP_TYPE_PROCESS)
             {
                 PhInsertEMenuItem(menu, PhCreateEMenuItem(0, 1, L"&Go to process", NULL, NULL), ULONG_MAX);

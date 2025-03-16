@@ -19,10 +19,12 @@
 #include <extmgri.h>
 #include <mainwnd.h>
 #include <netprv.h>
+#include <phconsole.h>
 #include <phsettings.h>
 #include <phsvc.h>
 #include <procprv.h>
 #include <devprv.h>
+#include <notifico.h>
 
 #include <ksisup.h>
 #include <settings.h>
@@ -163,8 +165,6 @@ INT WINAPI wWinMain(
         }
         else
         {
-            AllowSetForegroundWindow(ASFW_ANY);
-
             if (SUCCEEDED(PhRunAsAdminTask(&SI_RUNAS_ADMIN_TASK_NAME)))
             {
                 PhActivatePreviousInstance();
@@ -173,10 +173,10 @@ INT WINAPI wWinMain(
         }
     }
 
-    if (PhGetIntegerSetting(L"KsiEnable") &&
-        !PhStartupParameters.NoKph &&
-        !PhStartupParameters.ShowOptions &&
-        !PhIsExecutingInWow64())
+    PhInitializeSuperclassControls();
+
+    if (PhEnableKsiSupport &&
+        !PhStartupParameters.ShowOptions)
     {
         PhInitializeKsi();
     }
@@ -196,7 +196,6 @@ INT WINAPI wWinMain(
     PhGraphControlInitialization();
     PhHexEditInitialization();
     PhColorBoxInitialization();
-    PhInitializeSuperclassControls();
 
     PhInitializeAppSystem();
     PhInitializeCallbacks();
@@ -231,8 +230,9 @@ INT WINAPI wWinMain(
 #ifndef DEBUG
     if (PhIsExecutingInWow64())
     {
-        PhShowWarning(
+        PhShowWarning2(
             NULL,
+            L"Warning.",
             L"%s",
             L"You are attempting to run the 32-bit version of System Informer on 64-bit Windows. "
             L"Most features will not work correctly.\n\n"
@@ -242,6 +242,18 @@ INT WINAPI wWinMain(
     }
 #endif
 
+    // Set the default timer resolution.
+    {
+        if (WindowsVersion > WINDOWS_11)
+        {
+            PhSetProcessPowerThrottlingState(
+                NtCurrentProcess(),
+                POWER_THROTTLING_PROCESS_IGNORE_TIMER_RESOLUTION,
+                0  // Disable synthetic timer resolution.
+                );
+        }
+    }
+
     // Set the default priority.
     {
         UCHAR priorityClass = PROCESS_PRIORITY_CLASS_HIGH;
@@ -249,19 +261,17 @@ INT WINAPI wWinMain(
         if (PhStartupParameters.PriorityClass != 0)
             priorityClass = (UCHAR)PhStartupParameters.PriorityClass;
 
-        PhSetProcessPriority(NtCurrentProcess(), priorityClass);
+        PhSetProcessPriorityClass(NtCurrentProcess(), priorityClass);
     }
 
-    if (PhGetIntegerSetting(L"KsiEnable") &&
-        !PhStartupParameters.NoKph &&
-        !PhIsExecutingInWow64())
+    if (PhEnableKsiSupport)
     {
         PhShowKsiStatus();
     }
 
     if (!PhMainWndInitialization(CmdShow))
     {
-        PhShowError(NULL, L"%s", L"Unable to initialize the main window.");
+        PhShowStatus(NULL, L"Unable to create the window.", 0, ERROR_OUTOFMEMORY);
         return 1;
     }
 
@@ -273,9 +283,7 @@ INT WINAPI wWinMain(
 
     PhEnableTerminationPolicy(FALSE);
 
-    if (PhGetIntegerSetting(L"KsiEnable") &&
-        !PhStartupParameters.NoKph &&
-        !PhIsExecutingInWow64())
+    if (PhEnableKsiSupport)
     {
         PhCleanupKsi();
     }
@@ -445,12 +453,13 @@ static BOOL CALLBACK PhpPreviousInstanceWindowEnumProc(
 }
 
 static BOOLEAN NTAPI PhpPreviousInstancesCallback(
+    _In_ HANDLE RootDirectory,
     _In_ PPH_STRINGREF Name,
     _In_ PPH_STRINGREF TypeName,
     _In_ PVOID Context
     )
 {
-    static PH_STRINGREF objectNameSr = PH_STRINGREF_INIT(L"SiMutant_");
+    static CONST PH_STRINGREF objectNameSr = PH_STRINGREF_INIT(L"SiMutant_");
     HANDLE objectHandle;
     UNICODE_STRING objectName;
     OBJECT_ATTRIBUTES objectAttributes;
@@ -465,7 +474,7 @@ static BOOLEAN NTAPI PhpPreviousInstancesCallback(
         &objectAttributes,
         &objectName,
         OBJ_CASE_INSENSITIVE,
-        Context,
+        RootDirectory,
         NULL
         );
 
@@ -485,12 +494,15 @@ static BOOLEAN NTAPI PhpPreviousInstancesCallback(
     {
         HANDLE processHandle = NULL;
         HANDLE tokenHandle = NULL;
+        PROCESS_BASIC_INFORMATION basicInfo;
         PH_TOKEN_USER tokenUser;
         ULONG attempts = 50;
 
         if (objectInfo.ClientId.UniqueProcess == NtCurrentProcessId())
             goto CleanupExit;
-        if (!NT_SUCCESS(PhOpenProcess(&processHandle, PROCESS_QUERY_LIMITED_INFORMATION, objectInfo.ClientId.UniqueProcess)))
+        if (!NT_SUCCESS(PhOpenProcessClientId(&processHandle, PROCESS_QUERY_LIMITED_INFORMATION, &objectInfo.ClientId)))
+            goto CleanupExit;
+        if (!NT_SUCCESS(PhGetProcessBasicInformation(processHandle, &basicInfo)))
             goto CleanupExit;
         if (!NT_SUCCESS(PhOpenProcessToken(processHandle, TOKEN_QUERY, &tokenHandle)))
             goto CleanupExit;
@@ -498,6 +510,9 @@ static BOOLEAN NTAPI PhpPreviousInstancesCallback(
             goto CleanupExit;
         if (!PhEqualSid(tokenUser.User.Sid, PhGetOwnTokenAttributes().TokenSid))
             goto CleanupExit;
+
+        //AllowSetForegroundWindow(HandleToUlong(basicInfo.UniqueProcessId));
+        //PhConsoleSetForeground(processHandle, TRUE);
 
         // Try to locate the window a few times because some users reported that it might not yet have been created. (dmex)
         do
@@ -543,11 +558,7 @@ VOID PhActivatePreviousInstance(
     VOID
     )
 {
-    HANDLE directoryHandle;
-
-    directoryHandle = PhGetNamespaceHandle();
-
-    PhEnumDirectoryObjects(directoryHandle, PhpPreviousInstancesCallback, directoryHandle);
+    PhEnumDirectoryObjects(PhGetNamespaceHandle(), PhpPreviousInstancesCallback, NULL);
 }
 
 VOID PhInitializeCommonControls(
@@ -724,12 +735,12 @@ ULONG CALLBACK PhpUnhandledExceptionCallback(
         TASKDIALOGCONFIG config = { sizeof(TASKDIALOGCONFIG) };
         TASKDIALOG_BUTTON buttons[6] =
         {
-            { 1, L"Full\nA complete dump of the process, rarely needed most of the time." },
-            { 2, L"Normal\nFor most purposes, this dump file is the most useful." },
-            { 3, L"Minimal\nA very limited dump with limited data." },
-            { 4, L"Restart\nRestart the application." }, // and hope it doesn't crash again.";
-            { 5, L"Ignore" },  // \nTry ignore the exception and continue.";
-            { 6, L"Exit" }, // \nTerminate the program.";
+            { 101, L"Full\nA complete dump of the process, rarely needed most of the time." },
+            { 102, L"Normal\nFor most purposes, this dump file is the most useful." },
+            { 103, L"Minimal\nA very limited dump with limited data." },
+            { 104, L"Restart\nRestart the application." }, // and hope it doesn't crash again.";
+            { 105, L"Ignore" },  // \nTry ignore the exception and continue.";
+            { 106, L"Exit" }, // \nTerminate the program.";
         };
 
         if (NT_NTWIN32(ExceptionInfo->ExceptionRecord->ExceptionCode))
@@ -749,27 +760,27 @@ ULONG CALLBACK PhpUnhandledExceptionCallback(
         config.pszMainInstruction = L"System Informer has crashed :(";
         config.cButtons = RTL_NUMBER_OF(buttons);
         config.pButtons = buttons;
-        config.nDefaultButton = 6;
+        config.nDefaultButton = 106;
         config.cxWidth = 250;
         config.pszContent = PhGetString(message);
 #ifdef DEBUG
         config.pszExpandedInformation = PhGetString(PhGetStacktraceAsString());
 #endif
 
-        if (SUCCEEDED(TaskDialogIndirect(&config, &result, NULL, NULL)))
+        if (PhShowTaskDialog(&config, &result, NULL, NULL))
         {
             switch (result)
             {
-            case 1:
+            case 101:
                 PhpCreateUnhandledExceptionCrashDump(ExceptionInfo, PhTriageDumpTypeFull);
                 break;
-            case 2:
+            case 102:
                 PhpCreateUnhandledExceptionCrashDump(ExceptionInfo, PhTriageDumpTypeNormal);
                 break;
-            case 3:
+            case 103:
                 PhpCreateUnhandledExceptionCrashDump(ExceptionInfo, PhTriageDumpTypeMinimal);
                 break;
-            case 4:
+            case 104:
                 {
                     PhShellProcessHacker(
                         NULL,
@@ -782,7 +793,7 @@ ULONG CALLBACK PhpUnhandledExceptionCallback(
                         );
                 }
                 break;
-            case 5:
+            case 105:
                 {
                     return EXCEPTION_CONTINUE_EXECUTION;
                 }
@@ -798,7 +809,7 @@ ULONG CALLBACK PhpUnhandledExceptionCallback(
                 L"Do you want to create a minidump on the Desktop?"
                 ) == IDYES)
             {
-                PhpCreateUnhandledExceptionCrashDump(ExceptionInfo, FALSE);
+                PhpCreateUnhandledExceptionCrashDump(ExceptionInfo, PhTriageDumpTypeMinimal);
             }
         }
     }
@@ -1000,8 +1011,8 @@ BOOLEAN PhInitializeComPolicy(
         PhLengthSid(&administratorsSid);
 
     dacl = PTR_ADD_OFFSET(securityDescriptor, SECURITY_DESCRIPTOR_MIN_LENGTH);
-    RtlCreateSecurityDescriptor(securityDescriptor, SECURITY_DESCRIPTOR_REVISION);
-    RtlCreateAcl(dacl, securityDescriptorAllocationLength - SECURITY_DESCRIPTOR_MIN_LENGTH, ACL_REVISION);
+    PhCreateSecurityDescriptor(securityDescriptor, SECURITY_DESCRIPTOR_REVISION);
+    PhCreateAcl(dacl, securityDescriptorAllocationLength - SECURITY_DESCRIPTOR_MIN_LENGTH, ACL_REVISION);
     RtlAddAccessAllowedAce(dacl, ACL_REVISION, FILE_READ_DATA | FILE_WRITE_DATA, &PhSeAuthenticatedUserSid);
     RtlAddAccessAllowedAce(dacl, ACL_REVISION, FILE_READ_DATA | FILE_WRITE_DATA, &PhSeLocalSystemSid);
     RtlAddAccessAllowedAce(dacl, ACL_REVISION, FILE_READ_DATA | FILE_WRITE_DATA, administratorsSid);
@@ -1067,7 +1078,9 @@ BOOLEAN PhInitializeTimerPolicy(
     VOID
     )
 {
-    SetUserObjectInformation(NtCurrentProcess(), UOI_TIMERPROC_EXCEPTION_SUPPRESSION, &(BOOL){ FALSE }, sizeof(BOOL));
+    static BOOL timerSuppression = FALSE;
+
+    SetUserObjectInformation(NtCurrentProcess(), UOI_TIMERPROC_EXCEPTION_SUPPRESSION, &timerSuppression, sizeof(BOOL));
 
     return TRUE;
 }
@@ -1107,11 +1120,11 @@ VOID PhpInitializeSettings(
         // 3. The default location.
 
         // 1. File specified in command line
-        //if (PhStartupParameters.SettingsFileName)
-        //{
-        //    // Get an absolute path now.
-        //    PhGetFullPath(PhStartupParameters.SettingsFileName->Buffer, &PhSettingsFileName, NULL);
-        //}
+        if (PhStartupParameters.SettingsFileName)
+        {
+            // Get an absolute path now.
+            PhGetFullPath(PhStartupParameters.SettingsFileName->Buffer, &PhSettingsFileName, NULL);
+        }
 
         // 2. File in program directory
         if (PhIsNullOrEmptyString(PhSettingsFileName))
@@ -1198,14 +1211,27 @@ VOID PhpInitializeSettings(
     PhPluginsEnabled = !!PhGetIntegerSetting(L"EnablePlugins");
     PhMaxSizeUnit = PhGetIntegerSetting(L"MaxSizeUnit");
     PhMaxPrecisionUnit = (USHORT)PhGetIntegerSetting(L"MaxPrecisionUnit");
+    PhMaxPrecisionLimit = 1.0f;
+    for (ULONG i = 0; i < PhMaxPrecisionUnit; i++)
+        PhMaxPrecisionLimit /= 10;
     PhEnableWindowText = !!PhGetIntegerSetting(L"EnableWindowText");
     PhEnableThemeSupport = !!PhGetIntegerSetting(L"EnableThemeSupport");
+    PhThemeWindowForegroundColor = PhGetIntegerSetting(L"ThemeWindowForegroundColor");
+    PhThemeWindowBackgroundColor = PhGetIntegerSetting(L"ThemeWindowBackgroundColor");
+    PhThemeWindowBackground2Color = PhGetIntegerSetting(L"ThemeWindowBackground2Color");
+    PhThemeWindowHighlightColor = PhGetIntegerSetting(L"ThemeWindowHighlightColor");
+    PhThemeWindowHighlight2Color = PhGetIntegerSetting(L"ThemeWindowHighlight2Color");
+    PhThemeWindowTextColor = PhGetIntegerSetting(L"ThemeWindowTextColor");
     PhEnableThemeAcrylicSupport = WindowsVersion >= WINDOWS_11 && !!PhGetIntegerSetting(L"EnableThemeAcrylicSupport");
+    PhEnableThemeAcrylicWindowSupport = WindowsVersion >= WINDOWS_11 && !!PhGetIntegerSetting(L"EnableThemeAcrylicWindowSupport");
+    PhEnableThemeNativeButtons = !!PhGetIntegerSetting(L"EnableThemeNativeButtons");
     PhEnableThemeListviewBorder = !!PhGetIntegerSetting(L"TreeListBorderEnable");
     PhEnableDeferredLayout = !!PhGetIntegerSetting(L"EnableDeferredLayout");
     PhEnableServiceNonPoll = !!PhGetIntegerSetting(L"EnableServiceNonPoll");
     PhEnableServiceNonPollNotify = !!PhGetIntegerSetting(L"EnableServiceNonPollNotify");
     PhServiceNonPollFlushInterval = PhGetIntegerSetting(L"NonPollFlushInterval");
+    PhEnableKsiSupport = !!PhGetIntegerSetting(L"KsiEnable") && !PhStartupParameters.NoKph && !PhIsExecutingInWow64();
+    PhEnableKsiWarnings = !!PhGetIntegerSetting(L"KsiEnableWarnings");
 
     if (PhGetIntegerSetting(L"SampleCountAutomatic"))
     {
@@ -1219,27 +1245,25 @@ VOID PhpInitializeSettings(
         PhSetIntegerSetting(L"SampleCount", sampleCount);
     }
 
-    if (!PhIsNullOrEmptyString(PhStartupParameters.Channel))
+    if (PhStartupParameters.UpdateChannel)
     {
-        static PH_STRINGREF stableChannel = PH_STRINGREF_INIT(L"release");
-        static PH_STRINGREF previewChannel = PH_STRINGREF_INIT(L"preview");
-        static PH_STRINGREF canaryChannel = PH_STRINGREF_INIT(L"canary");
-        static PH_STRINGREF developerChannel = PH_STRINGREF_INIT(L"developer");
+        PhSetIntegerSetting(L"ReleaseChannel", PhStartupParameters.UpdateChannel);
+    }
 
-        if (PhEqualStringRef(&PhStartupParameters.Channel->sr, &stableChannel, FALSE))
-            PhSetIntegerSetting(L"ReleaseChannel", PhReleaseChannel);
-        else if (PhEqualStringRef(&PhStartupParameters.Channel->sr, &previewChannel, FALSE))
-            PhSetIntegerSetting(L"ReleaseChannel", PhPreviewChannel);
-        else if (PhEqualStringRef(&PhStartupParameters.Channel->sr, &canaryChannel, FALSE))
-            PhSetIntegerSetting(L"ReleaseChannel", PhCanaryChannel);
-        else if (PhEqualStringRef(&PhStartupParameters.Channel->sr, &developerChannel, FALSE))
-            PhSetIntegerSetting(L"ReleaseChannel", PhDeveloperChannel);
+    if (PhStartupParameters.ShowHidden && !PhNfIconsEnabled())
+    {
+        // HACK(jxy-s) The default used to be that system tray icons where enabled, this keeps the
+        // old behavior for automation workflows. If the user specified "-hide" then they want to
+        // start the program hidden to the system tray and not show any main window. If there are no
+        // system tray icons enabled then we need to enable them so the behavior is consistent.
+        PhSetStringSetting(L"IconSettings", L"2|1");
     }
 }
 
 typedef enum _PH_COMMAND_ARG
 {
     PH_ARG_NONE,
+    PH_ARG_SETTINGS,
     PH_ARG_NOSETTINGS,
     PH_ARG_SHOWVISIBLE,
     PH_ARG_SHOWHIDDEN,
@@ -1277,6 +1301,9 @@ BOOLEAN NTAPI PhpCommandLineOptionCallback(
     {
         switch (Option->Id)
         {
+        case PH_ARG_SETTINGS:
+            PhSwapReference(&PhStartupParameters.SettingsFileName, Value);
+            break;
         case PH_ARG_NOSETTINGS:
             PhStartupParameters.NoSettings = TRUE;
             break;
@@ -1371,7 +1398,16 @@ BOOLEAN NTAPI PhpCommandLineOptionCallback(
             PhStartupParameters.KphStartupMax = TRUE;
             break;
         case PH_ARG_CHANNEL:
-            PhSwapReference(&PhStartupParameters.Channel, Value);
+            {
+                if (Value && PhEqualString2(Value, L"release", FALSE))
+                    PhStartupParameters.UpdateChannel = PhReleaseChannel;
+                else if (Value && PhEqualString2(Value, L"preview", FALSE))
+                    PhStartupParameters.UpdateChannel = PhPreviewChannel;
+                else if (Value && PhEqualString2(Value, L"canary", FALSE))
+                    PhStartupParameters.UpdateChannel = PhCanaryChannel;
+                else if (Value && PhEqualString2(Value, L"developer", FALSE))
+                    PhStartupParameters.UpdateChannel = PhDeveloperChannel;
+            }
             break;
         }
     }
@@ -1386,7 +1422,7 @@ BOOLEAN NTAPI PhpCommandLineOptionCallback(
         {
             if (PhFindStringInString(upperValue, 0, L"TASKMGR.EXE") != SIZE_MAX)
             {
-                // User probably has Process Hacker replacing Task Manager. Force
+                // User probably has System Informer replacing Task Manager. Force
                 // the main window to start visible.
                 PhStartupParameters.ShowVisible = TRUE;
             }
@@ -1404,6 +1440,7 @@ VOID PhpProcessStartupParameters(
 {
     PH_COMMAND_LINE_OPTION options[] =
     {
+        { PH_ARG_SETTINGS, L"settings", MandatoryArgumentType },
         { PH_ARG_NOSETTINGS, L"nosettings", NoArgumentType },
         { PH_ARG_SHOWVISIBLE, L"v", NoArgumentType },
         { PH_ARG_SHOWHIDDEN, L"hide", NoArgumentType },
@@ -1441,10 +1478,10 @@ VOID PhpProcessStartupParameters(
         NULL
         ) || PhStartupParameters.Help)
     {
-        PhShowInformation(
+        PhShowInformation2(
             NULL,
+            L"Command line options:",
             L"%s",
-            L"Command line options:\n\n"
             L"-debug\n"
             L"-elevate\n"
             L"-help\n"
@@ -1458,13 +1495,13 @@ VOID PhpProcessStartupParameters(
             L"-s\n"
             L"-selectpid pid-to-select\n"
             L"-selecttab name-of-tab-to-select\n"
+            L"-settings filename\n"
             L"-sysinfo [section-name]\n"
             L"-channel [channel-name]\n"
-            L"-v\n"
+            L"-v"
             );
 
-        if (PhStartupParameters.Help)
-            PhExitApplication(STATUS_SUCCESS);
+        PhExitApplication(STATUS_SUCCESS);
     }
 
     if (PhStartupParameters.Elevate && !PhGetOwnTokenAttributes().Elevated)

@@ -55,11 +55,17 @@ INT_PTR CALLBACK PhpJobStatisticsPageProc(
     _In_ LPARAM lParam
     );
 
+INT CALLBACK PhpJobStatisticsSheetProc(
+    _In_ HWND hwndDlg,
+    _In_ UINT uMsg,
+    _In_ LPARAM lParam
+);
+
 VOID PhShowJobProperties(
     _In_ HWND ParentWindowHandle,
     _In_ PPH_OPEN_OBJECT OpenObject,
     _In_opt_ PVOID Context,
-    _In_opt_ PWSTR Title
+    _In_opt_ PCWSTR Title
     )
 {
     PROPSHEETHEADER propSheetHeader = { sizeof(propSheetHeader) };
@@ -148,11 +154,11 @@ FORCEINLINE PJOB_PAGE_CONTEXT PhpJobPageHeader(
 
 static VOID PhpAddLimit(
     _In_ HWND Handle,
-    _In_ PWSTR Name,
-    _In_ PWSTR Value
+    _In_ PCWSTR Name,
+    _In_ PCWSTR Value
     )
 {
-    INT lvItemIndex;
+    LONG lvItemIndex;
 
     lvItemIndex = PhAddListViewItem(Handle, MAXINT, Name, NULL);
     PhSetListViewSubItem(Handle, lvItemIndex, 1, Value);
@@ -314,7 +320,7 @@ INT_PTR CALLBACK PhpJobPageProc(
 
                     if (flags & JOB_OBJECT_LIMIT_PRIORITY_CLASS)
                     {
-                        PPH_STRINGREF value;
+                        PCPH_STRINGREF value;
 
                         if (value = PhGetProcessPriorityClassString(extendedLimits.BasicLimitInformation.PriorityClass))
                         {
@@ -589,13 +595,15 @@ VOID PhpShowJobAdvancedProperties(
     propSheetHeader.dwFlags =
         PSH_NOAPPLYNOW |
         PSH_NOCONTEXTHELP |
-        PSH_PROPTITLE;
+        PSH_PROPTITLE |
+        PSH_USECALLBACK;
     propSheetHeader.hInstance = PhInstanceHandle;
     propSheetHeader.hwndParent = ParentWindowHandle;
     propSheetHeader.pszCaption = L"Job";
     propSheetHeader.nPages = 2;
     propSheetHeader.nStartPage = 0;
     propSheetHeader.phpage = pages;
+    propSheetHeader.pfnCallback = PhpJobStatisticsSheetProc;
 
     // General
 
@@ -756,4 +764,17 @@ INT_PTR CALLBACK PhpJobStatisticsPageProc(
     }
 
     return FALSE;
+}
+
+INT CALLBACK PhpJobStatisticsSheetProc(
+    _In_ HWND hwndDlg,
+    _In_ UINT uMsg,
+    _In_ LPARAM lParam
+    )
+{
+    if (uMsg == PSCB_INITIALIZED && PhEnableThemeSupport)
+    {
+        PhInitializeWindowTheme(hwndDlg, TRUE);
+    }
+    return 0;
 }

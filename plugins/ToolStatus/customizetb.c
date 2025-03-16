@@ -516,10 +516,10 @@ INT_PTR CALLBACK CustomizeToolbarDialogProc(
 
             if (PhGetIntegerSetting(L"EnableThemeSupport"))
             {
-                context->BrushNormal = CreateSolidBrush(RGB(43, 43, 43));
-                context->BrushHot = CreateSolidBrush(RGB(128, 128, 128));
-                context->BrushPushed = CreateSolidBrush(RGB(153, 209, 255));
-                context->TextColor = RGB(0xff, 0xff, 0xff);
+                context->BrushNormal = CreateSolidBrush(PhGetIntegerSetting(L"ThemeWindowBackgroundColor"));
+                context->BrushHot = CreateSolidBrush(PhGetIntegerSetting(L"ThemeWindowHighlightColor"));
+                context->BrushPushed = CreateSolidBrush(PhGetIntegerSetting(L"ThemeWindowHighlight2Color"));
+                context->TextColor = PhGetIntegerSetting(L"ThemeWindowTextColor");
             }
             else
             {
@@ -575,11 +575,9 @@ INT_PTR CALLBACK CustomizeToolbarDialogProc(
             ListBox_SetItemHeight(context->CurrentListHandle, 0, context->CXWidth + 6); // BitmapHeight
 
             {
-                // TODO: The icon DPI must equal the main window toolbar but the DPI
-                // for the main window doesn't get updated until after we return. (dmex)
-                //LONG dpi = PhGetWindowDpi(PhMainWndHandle);
-                ToolBarImageSize.cx = PhGetSystemMetrics(SM_CXSMICON, context->WindowDpi);
-                ToolBarImageSize.cy = PhGetSystemMetrics(SM_CYSMICON, context->WindowDpi);
+                LONG dpi = SystemInformer_GetWindowDpi();
+                ToolBarImageSize.cx = PhGetSystemMetrics(SM_CXSMICON, dpi);
+                ToolBarImageSize.cy = PhGetSystemMetrics(SM_CYSMICON, dpi);
             }
 
             CustomizeResetImages(context);
@@ -840,12 +838,12 @@ INT_PTR CALLBACK CustomizeToolbarDialogProc(
 
                         if (ToolStatusConfig.AutoHideMenu)
                         {
-                            SetMenu(PhMainWndHandle, NULL);
+                            SetMenu(MainWindowHandle, NULL);
                         }
                         else
                         {
-                            SetMenu(PhMainWndHandle, MainMenu);
-                            DrawMenuBar(PhMainWndHandle);
+                            SetMenu(MainWindowHandle, MainMenu);
+                            DrawMenuBar(MainWindowHandle);
                         }
                     }
                 }

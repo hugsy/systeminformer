@@ -14,10 +14,10 @@
 #undef APSTUDIO_READONLY_SYMBOLS
 
 /////////////////////////////////////////////////////////////////////////////
-// Neutral resources
+// English (United States) resources
 
-#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_NEU)
-LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 
 #ifdef APSTUDIO_INVOKED
 /////////////////////////////////////////////////////////////////////////////
@@ -25,17 +25,17 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 // TEXTINCLUDE
 //
 
-1 TEXTINCLUDE
+1 TEXTINCLUDE 
 BEGIN
     "resource.h\0"
 END
 
-2 TEXTINCLUDE
+2 TEXTINCLUDE 
 BEGIN
     "#include ""winres.h""\0"
 END
 
-3 TEXTINCLUDE
+3 TEXTINCLUDE 
 BEGIN
     "\r\n"
     "\0"
@@ -69,14 +69,14 @@ BEGIN
     LTEXT           "Max Tracert Hops:",IDC_STATIC,113,37,60,8
     CONTROL         "Enable extended TCP statistics",IDC_ENABLE_EXTENDED_TCP,
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,15,19,115,10
-    EDITTEXT        IDC_KEYTEXT,16,100,184,14,ES_AUTOHSCROLL | ES_READONLY | WS_DISABLED
+    EDITTEXT        IDC_GEOIDTEXT,16,100,184,14,ES_AUTOHSCROLL | ES_READONLY | WS_DISABLED
     LTEXT           "MaxMind GeoLite Account ID:",IDC_STATIC,16,89,95,8
     PUSHBUTTON      "Open GeoIP.conf",IDC_GEOCONF,122,146,62,14
-    PUSHBUTTON      "Change",IDC_APIKEYBTN,202,100,50,14
+    PUSHBUTTON      "Change",IDC_APIKEYIDBTN,202,100,50,14
     LTEXT           "Note: You can also download GeoLite updates from the Main menu > Tools > Network Tools > Update GeoLite...",IDC_STATIC,16,167,271,24
-    EDITTEXT        IDC_GEOIDTEXT,16,126,184,14,ES_AUTOHSCROLL | ES_READONLY | WS_DISABLED
+    EDITTEXT        IDC_KEYTEXT,16,126,184,14,ES_AUTOHSCROLL | ES_READONLY | WS_DISABLED
     LTEXT           "MaxMind GeoLite License Key:",IDC_STATIC,16,116,97,8
-    PUSHBUTTON      "Change",IDC_APIKEYIDBTN,202,126,50,14
+    PUSHBUTTON      "Change",IDC_APIKEYBTN,202,126,50,14
     PUSHBUTTON      "Download update",IDRETRY,189,146,62,14
     GROUPBOX        "Network Tools",IDC_STATIC,7,7,222,63
     GROUPBOX        "GeoLite Update",IDC_STATIC,7,74,290,118
@@ -118,10 +118,10 @@ STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSM
 CAPTION "Update MaxMind License Key"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
-    PUSHBUTTON      "Save",IDYES,198,47,50,14
-    DEFPUSHBUTTON   "Cancel",IDCANCEL,252,47,50,14
-    EDITTEXT        IDC_KEYTEXT,7,24,295,14,ES_AUTOHSCROLL
-    LTEXT           "Paste the license key here: ",IDC_STATIC,7,7,90,8
+    DEFPUSHBUTTON   "Save",IDYES,198,47,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,252,47,50,14
+    EDITTEXT        IDC_KEY_EDIT,7,24,295,14,ES_AUTOHSCROLL
+    LTEXT           "Paste the license key below:",IDC_KEYTEXT_L,7,7,172,8
     CONTROL         "Checkout <a href=""https://support.maxmind.com/hc/en-us/articles/4407111582235-Generate-a-License-Key"">How-to-generate-a-license-key</a>",IDC_HELPLINK,
                     "SysLink",WS_TABSTOP,7,47,136,14
 END
@@ -674,45 +674,7 @@ END
 #endif    // APSTUDIO_INVOKED
 
 
-/////////////////////////////////////////////////////////////////////////////
-//
-// Version
-//
-
-VS_VERSION_INFO VERSIONINFO
- FILEVERSION 3,7,0,0
- PRODUCTVERSION 3,7,0,0
- FILEFLAGSMASK 0x3fL
-#ifdef _DEBUG
- FILEFLAGS 0x1L
-#else
- FILEFLAGS 0x0L
-#endif
- FILEOS 0x40004L
- FILETYPE 0x2L
- FILESUBTYPE 0x0L
-BEGIN
-    BLOCK "StringFileInfo"
-    BEGIN
-        BLOCK "000004b0"
-        BEGIN
-            VALUE "CompanyName", "System Informer"
-            VALUE "FileDescription", "System Informer"
-            VALUE "FileVersion", "3.7.0.0"
-            VALUE "InternalName", "NetworkTools.dll"
-            VALUE "LegalCopyright", "Copyright (c) Winsider Seminars & Solutions, Inc.  All rights reserved."
-            VALUE "OriginalFilename", "NetworkTools.dll"
-            VALUE "ProductName", "System Informer"
-            VALUE "ProductVersion", "3.7.0.0"
-        END
-    END
-    BLOCK "VarFileInfo"
-    BEGIN
-        VALUE "Translation", 0x0, 1200
-    END
-END
-
-#endif    // Neutral resources
+#endif    // English (United States) resources
 /////////////////////////////////////////////////////////////////////////////
 
 

@@ -14,7 +14,7 @@
 
 #include <trace.h>
 
-PAGED_FILE();
+KPH_PAGED_FILE();
 
 /**
  * \brief Opens a thread.
@@ -42,7 +42,7 @@ NTSTATUS KphOpenThread(
     PETHREAD thread;
     HANDLE threadHandle = NULL;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     thread = NULL;
 
@@ -182,7 +182,7 @@ NTSTATUS KphOpenThreadProcess(
     PETHREAD thread;
     HANDLE processHandle;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     thread = NULL;
 
@@ -313,7 +313,7 @@ NTSTATUS KphCaptureStackBackTraceThreadByHandle(
     ULONG backTraceHash;
     LARGE_INTEGER timeout;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     backTrace = NULL;
     thread = NULL;
@@ -487,7 +487,7 @@ NTSTATUS KphSetInformationThread(
     HANDLE threadHandle;
     THREADINFOCLASS threadInformationClass;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     threadInformation = NULL;
     thread = NULL;
@@ -501,24 +501,17 @@ NTSTATUS KphSetInformationThread(
 
     if (AccessMode != KernelMode)
     {
-        if (ThreadInformationLength <= ARRAYSIZE(stackBuffer))
+        threadInformation = KphAllocatePagedA(ThreadInformationLength,
+                                              KPH_TAG_THREAD_INFO,
+                                              stackBuffer);
+        if (!threadInformation)
         {
-            RtlZeroMemory(stackBuffer, ARRAYSIZE(stackBuffer));
-            threadInformation = stackBuffer;
-        }
-        else
-        {
-            threadInformation = KphAllocatePaged(ThreadInformationLength,
-                                                 KPH_TAG_THREAD_INFO);
-            if (!threadInformation)
-            {
-                KphTracePrint(TRACE_LEVEL_VERBOSE,
-                              GENERAL,
-                              "Failed to allocate thread info buffer.");
+            KphTracePrint(TRACE_LEVEL_VERBOSE,
+                          GENERAL,
+                          "Failed to allocate thread info buffer.");
 
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto Exit;
-            }
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Exit;
         }
 
         __try
@@ -678,11 +671,9 @@ Exit:
         ObDereferenceObject(thread);
     }
 
-    if (threadInformation &&
-        (threadInformation != ThreadInformation) &&
-        (threadInformation != stackBuffer))
+    if (threadInformation && (threadInformation != ThreadInformation))
     {
-        KphFree(threadInformation, KPH_TAG_THREAD_INFO);
+        KphFreeA(threadInformation, KPH_TAG_THREAD_INFO, stackBuffer);
     }
 
     return status;
@@ -718,7 +709,7 @@ NTSTATUS KphQueryInformationThread(
     PKPH_THREAD_CONTEXT thread;
     ULONG returnLength;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     dyn = NULL;
     threadObject = NULL;

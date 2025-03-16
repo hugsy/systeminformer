@@ -36,11 +36,11 @@ BOOLEAN ProcessTreeFilterCallback(
             return TRUE;
     }
 
-    if (!PhIsNullOrEmptyString(processNode->ProcessItem->FileNameWin32))
-    {
-        if (PhSearchControlMatch(SearchMatchHandle, &processNode->ProcessItem->FileNameWin32->sr))
-            return TRUE;
-    }
+    //if (!PhIsNullOrEmptyString(processNode->ProcessItem->FileNameWin32))
+    //{
+    //    if (PhSearchControlMatch(SearchMatchHandle, &processNode->ProcessItem->FileNameWin32->sr))
+    //        return TRUE;
+    //}
 
     if (!PhIsNullOrEmptyString(processNode->ProcessItem->FileName))
     {
@@ -86,7 +86,15 @@ BOOLEAN ProcessTreeFilterCallback(
 
     if (processNode->ProcessItem->IntegrityString)
     {
-        if (PhSearchControlMatchLongHintZ(SearchMatchHandle, processNode->ProcessItem->IntegrityString))
+        if (PhSearchControlMatch(SearchMatchHandle, processNode->ProcessItem->IntegrityString))
+            return TRUE;
+    }
+
+    if (processNode->ProcessItem->Protection.Level ||
+        processNode->ProcessItem->IsSecureProcess ||
+        processNode->ProcessItem->IsProtectedProcess)
+    {
+        if (PhSearchControlMatch(SearchMatchHandle, &processNode->ProcessItem->ProtectionString->sr))
             return TRUE;
     }
 
@@ -111,11 +119,11 @@ BOOLEAN ProcessTreeFilterCallback(
         }
     }
 
-    if (processNode->ProcessItem->LxssProcessIdString[0])
-    {
-        if (PhSearchControlMatchLongHintZ(SearchMatchHandle, processNode->ProcessItem->LxssProcessIdString))
-            return TRUE;
-    }
+    //if (processNode->ProcessItem->LxssProcessIdString[0])
+    //{
+    //    if (PhSearchControlMatchLongHintZ(SearchMatchHandle, processNode->ProcessItem->LxssProcessIdString))
+    //        return TRUE;
+    //}
 
     if (!PhIsNullOrEmptyString(processNode->ProcessItem->PackageFullName))
     {
@@ -124,7 +132,7 @@ BOOLEAN ProcessTreeFilterCallback(
     }
 
     {
-        PPH_STRINGREF value;
+        PCPH_STRINGREF value;
 
         if (value = PhGetProcessPriorityClassString(processNode->ProcessItem->PriorityClass))
         {
@@ -228,7 +236,7 @@ BOOLEAN ProcessTreeFilterCallback(
         return TRUE;
     }
 
-    if (processNode->ProcessItem->IsWow64 && PhSearchControlMatchZ(SearchMatchHandle, L"IsWow64"))
+    if (processNode->ProcessItem->IsWow64Process && PhSearchControlMatchZ(SearchMatchHandle, L"IsWow64"))
     {
         return TRUE;
     }
@@ -543,7 +551,7 @@ BOOLEAN NetworkTreeFilterCallback(
     }
 
     {
-        PPH_STRINGREF protocolType;
+        PCPH_STRINGREF protocolType;
 
         if (protocolType = PhGetProtocolTypeName(networkNode->NetworkItem->ProtocolType))
         {
@@ -553,9 +561,9 @@ BOOLEAN NetworkTreeFilterCallback(
     }
 
     {
-        if (FlagOn(networkNode->NetworkItem->ProtocolType, PH_TCP_PROTOCOL_TYPE))
+        if (FlagOn(networkNode->NetworkItem->ProtocolType, PH_PROTOCOL_TYPE_TCP))
         {
-            PPH_STRINGREF stateName;
+            PCPH_STRINGREF stateName;
 
             if (stateName = PhGetTcpStateName(networkNode->NetworkItem->State))
             {

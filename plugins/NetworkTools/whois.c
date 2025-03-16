@@ -274,6 +274,7 @@ SOCKET WhoisDualStackSocketCreate(
     )
 {
     SOCKET socketHandle;
+    INT socketOpt;
 
     socketHandle = WSASocket(
         AF_INET6,
@@ -287,11 +288,13 @@ SOCKET WhoisDualStackSocketCreate(
     if (socketHandle == INVALID_SOCKET)
         return INVALID_SOCKET;
 
+    socketOpt = FALSE;
+
     if (setsockopt(
         socketHandle,
         IPPROTO_IPV6,
         IPV6_V6ONLY,
-        (PCSTR)&(INT){ FALSE },
+        (PCSTR)&socketOpt,
         sizeof(INT)
         ) == SOCKET_ERROR)
     {
@@ -826,7 +829,7 @@ VOID WhoisParseAddressString(
 {
     ULONG remoteAddressStringLength = RTL_NUMBER_OF(Context->RemoteAddressString);
 
-    if (Context->RemoteEndpoint.Address.Type == PH_IPV4_NETWORK_TYPE)
+    if (Context->RemoteEndpoint.Address.Type == PH_NETWORK_TYPE_IPV4)
     {
         if (NT_SUCCESS(RtlIpv4AddressToStringEx(
             &Context->RemoteEndpoint.Address.InAddr,
@@ -836,6 +839,7 @@ VOID WhoisParseAddressString(
             )))
         {
             Context->RemoteAddressStringLength = (remoteAddressStringLength - 1) * sizeof(WCHAR);
+            Context->RemoteAddressValid = TRUE;
         }
     }
     else
@@ -849,6 +853,7 @@ VOID WhoisParseAddressString(
             )))
         {
             Context->RemoteAddressStringLength = (remoteAddressStringLength - 1) * sizeof(WCHAR);
+            Context->RemoteAddressValid = TRUE;
         }
     }
 }

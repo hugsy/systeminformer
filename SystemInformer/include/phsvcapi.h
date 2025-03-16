@@ -84,6 +84,7 @@ typedef union _PHSVC_API_UNLOADDRIVER
     {
         PVOID BaseAddress;
         PH_RELATIVE_STRINGREF Name;
+        PH_RELATIVE_STRINGREF FileName;
     } i;
 } PHSVC_API_UNLOADDRIVER, *PPHSVC_API_UNLOADDRIVER;
 
@@ -112,7 +113,8 @@ typedef enum _PHSVC_API_CONTROLSERVICE_COMMAND
     PhSvcControlServiceContinue,
     PhSvcControlServicePause,
     PhSvcControlServiceStop,
-    PhSvcControlServiceDelete
+    PhSvcControlServiceDelete,
+    PhSvcControlServiceRestart
 } PHSVC_API_CONTROLSERVICE_COMMAND;
 
 typedef union _PHSVC_API_CONTROLSERVICE

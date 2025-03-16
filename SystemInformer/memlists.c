@@ -168,7 +168,7 @@ PH_MEMORY_LIST_COMMAND_CALLBACK(
 typedef PH_MEMORY_LIST_COMMAND_CALLBACK *PPH_MEMORY_LIST_COMMAND_CALLBACK;
 
 PPH_STRING PhpCreateCommandStatusString(
-    _In_ PWSTR Message,
+    _In_ PCWSTR Message,
     _In_ NTSTATUS Status
     )
 {
@@ -560,16 +560,16 @@ VOID PhShowMemoryListCommand(
             if (!PhIsNullOrEmptyString(message))
             {
                 if (showError)
-                    PhShowError2(ParentWindow, L"Memory Command", PhGetString(message));
+                    PhShowError2(ParentWindow, L"Unable to empty the memory list.", L"%s", PhGetString(message));
                 else
-                    PhShowInformation2(ParentWindow, L"Memory Command", PhGetString(message));
+                    PhShowInformation2(ParentWindow, L"Unable to empty the memory list.", L"%s", PhGetString(message));
             }
 
             PhClearReference(&message);
         }
         else if (!PhGetOwnTokenAttributes().Elevated)
         {
-            PhShowError2(ParentWindow, L"Memory Command", L"System Informer must run elevated to empty all.");
+            PhShowStatus(ParentWindow, L"Unable to empty the memory list.", 0, ERROR_ELEVATION_REQUIRED);
         }
         else
         {
@@ -597,7 +597,7 @@ VOID PhShowMemoryListCommand(
 
             message = PhFinalStringBuilderString(&stringBuilder);
             if (!PhIsNullOrEmptyString(message))
-                PhShowInformation2(ParentWindow, L"Memory Command", PhGetString(message));
+                PhShowInformation2(ParentWindow, L"Unable to empty the memory list.", L"%s", PhGetString(message));
             PhClearReference(&message);
         }
     }

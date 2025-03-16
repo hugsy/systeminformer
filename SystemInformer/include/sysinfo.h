@@ -45,7 +45,7 @@ typedef struct _PH_SYSINFO_PARAMETERS
 
     ULONG MinimumGraphHeight;
     ULONG SectionViewGraphHeight;
-    ULONG PanelWidth;
+    LONG PanelWidth;
     LONG WindowDpi;
 // end_phapppub
 
@@ -201,7 +201,7 @@ PHAPPAPI
 VOID
 NTAPI
 PhShowSystemInformationDialog(
-    _In_opt_ PWSTR SectionName
+    _In_opt_ PCWSTR SectionName
     );
 // end_phapppub
 

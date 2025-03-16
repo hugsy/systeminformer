@@ -158,9 +158,9 @@ INT CALLBACK PhpPropSheetProc(
             PhInitializeLayoutManager(&propSheetContext->LayoutManager, hwndDlg);
             PhSetWindowContext(hwndDlg, PH_WINDOW_CONTEXT_DEFAULT, propSheetContext);
 
-            propSheetContext->PropSheetWindowHookProc = (WNDPROC)GetWindowLongPtr(hwndDlg, GWLP_WNDPROC);
+            propSheetContext->PropSheetWindowHookProc = PhGetWindowProcedure(hwndDlg);
             PhSetWindowContext(hwndDlg, 0xF, propSheetContext);
-            SetWindowLongPtr(hwndDlg, GWLP_WNDPROC, (LONG_PTR)PhpPropSheetWndProc);
+            PhSetWindowProcedure(hwndDlg, PhpPropSheetWndProc);
 
             if (PhEnableThemeSupport) // NOTE: Required for compatibility. (dmex)
                 PhInitializeWindowTheme(hwndDlg, PhEnableThemeSupport);
@@ -256,13 +256,12 @@ LRESULT CALLBACK PhpPropSheetWndProc(
     case WM_SYSCOMMAND:
         {
             // Note: Clicking the X on the taskbar window thumbnail preview doesn't close modeless property sheets
-            // when there are more than 1 window and the window doesn't have focus... The MFC, ATL and WTL libraries
-            // check if the propsheet is modeless and SendMessage WM_CLOSE and so we'll implement the same solution. (dmex)
+            // when there are more than 1 window and the window doesn't have focus. (dmex)
             switch (wParam & 0xFFF0)
             {
             case SC_CLOSE:
                 {
-                    PostMessage(hwnd, WM_CLOSE, 0, 0);
+                    PostQuitMessage(0);
                     //SetWindowLongPtr(hwnd, DWLP_MSGRESULT, TRUE);
                     //return TRUE;
                 }
@@ -295,29 +294,6 @@ LRESULT CALLBACK PhpPropSheetWndProc(
             PhResizingMinimumSize((PRECT)lParam, wParam, MinimumSize.right, MinimumSize.bottom);
         }
         break;
-    case WM_KEYDOWN: // forward key messages (dmex)
-    //case WM_KEYUP:
-        {
-            HWND pageWindowHandle;
-
-            if (pageWindowHandle = PropSheet_GetCurrentPageHwnd(hwnd))
-            {
-                // TODO: Add hotkey plugin support using hashlist register/callback for window handle. (dmex)
-                if (SendMessage(pageWindowHandle, uMsg, wParam, lParam))
-                {
-                    return TRUE;
-                }
-            }
-
-            if (PhCsForceNoParent)
-            {
-                if (wParam == VK_F5)
-                {
-                    ProcessHacker_Refresh();
-                }
-            }
-        }
-        break;
     case WM_TIMER:
         {
             UINT id = (UINT)wParam;
@@ -326,6 +302,59 @@ LRESULT CALLBACK PhpPropSheetWndProc(
             {
                 PhpFlushProcessPropSheetWaitContextData();
             }
+        }
+        break;
+    case PSM_ISDIALOGMESSAGE:
+        {
+            PMSG dialog = (PMSG)lParam;
+
+            if (dialog->message == WM_KEYDOWN)
+            {
+                switch (dialog->wParam)
+                {
+                case VK_F5:
+                    SystemInformer_Refresh();
+                    break;
+                case VK_F6:
+                case VK_PAUSE:
+                    SystemInformer_SetUpdateAutomatically(!SystemInformer_GetUpdateAutomatically());
+                    break;
+                }
+            }
+        }
+        break;
+    case WM_DPICHANGED:
+        {
+            USHORT newDpi = HIWORD(wParam);
+            PRECT CONST newRect = (PRECT)lParam;
+
+            CallWindowProc(oldWndProc, hwnd, uMsg, wParam, lParam);
+
+            {
+                SetWindowPos(
+                    hwnd,
+                    NULL,
+                    newRect->left,
+                    newRect->top,
+                    newRect->right - newRect->left,
+                    newRect->bottom - newRect->top,
+                    SWP_NOZORDER | SWP_NOACTIVATE
+                    );
+            }
+
+            {
+                RECT rect;
+
+                rect.left = 0;
+                rect.top = 0;
+                rect.right = 290;
+                rect.bottom = 320;
+                MapDialogRect(hwnd, &rect);
+                MinimumSize = rect;
+                MinimumSize.left = 0;
+            }
+
+            return 0;
         }
         break;
     }
@@ -345,21 +374,16 @@ BOOLEAN PhpInitializePropSheetLayoutStage1(
         PPH_LAYOUT_ITEM tabPageItem;
 
         tabControlHandle = PropSheet_GetTabControl(hwnd);
-        tabControlItem = PhAddLayoutItem(&Context->LayoutManager, tabControlHandle,
-            NULL, PH_ANCHOR_ALL | PH_LAYOUT_IMMEDIATE_RESIZE);
-        tabPageItem = PhAddLayoutItem(&Context->LayoutManager, tabControlHandle,
-            NULL, PH_LAYOUT_TAB_CONTROL); // dummy item to fix multiline tab control
-
-        Context->TabPageItem = tabPageItem;
-
-        PhAddLayoutItem(&Context->LayoutManager, GetDlgItem(hwnd, IDCANCEL),
-            NULL, PH_ANCHOR_RIGHT | PH_ANCHOR_BOTTOM);
+        tabControlItem = PhAddLayoutItem(&Context->LayoutManager, tabControlHandle, NULL, PH_ANCHOR_ALL | PH_LAYOUT_IMMEDIATE_RESIZE);
+        tabPageItem = PhAddLayoutItem(&Context->LayoutManager, tabControlHandle, NULL, PH_LAYOUT_TAB_CONTROL); // dummy item to fix multiline tab control
+        PhAddLayoutItem(&Context->LayoutManager, GetDlgItem(hwnd, IDCANCEL), NULL, PH_ANCHOR_RIGHT | PH_ANCHOR_BOTTOM);
 
         // Hide the OK button.
         ShowWindow(GetDlgItem(hwnd, IDOK), SW_HIDE);
         // Set the Cancel button's text to "Close".
         PhSetDialogItemText(hwnd, IDCANCEL, L"Close");
 
+        Context->TabPageItem = tabPageItem;
         Context->LayoutInitialized = TRUE;
 
         return TRUE;
@@ -376,12 +400,12 @@ VOID PhpInitializePropSheetLayoutStage2(
     RECT rect;
     LONG dpiValue;
 
+    PhLoadWindowPlacementFromSetting(L"ProcPropPosition", L"ProcPropSize", hwnd);
+
     windowRectangle.Position = PhGetIntegerPairSetting(L"ProcPropPosition");
-
-    rect = PhRectangleToRect(windowRectangle);
+    PhRectangleToRect(&rect, &windowRectangle);
     dpiValue = PhGetMonitorDpi(&rect);
-
-    windowRectangle.Size = PhGetScalableIntegerPairSetting(L"ProcPropSize", TRUE, dpiValue).Pair;
+    windowRectangle.Size = PhGetScalableIntegerPairSetting(L"ProcPropSize", TRUE, dpiValue)->Pair;
 
     if (windowRectangle.Size.X < MinimumSize.right)
         windowRectangle.Size.X = MinimumSize.right;
@@ -390,13 +414,9 @@ VOID PhpInitializePropSheetLayoutStage2(
 
     PhAdjustRectangleToWorkingArea(NULL, &windowRectangle);
 
-    MoveWindow(hwnd, windowRectangle.Left, windowRectangle.Top,
-        windowRectangle.Width, windowRectangle.Height, FALSE);
-
     // Implement cascading by saving an offsetted rectangle.
     windowRectangle.Left += 20;
     windowRectangle.Top += 20;
-
     PhSetIntegerPairSetting(L"ProcPropPosition", windowRectangle.Position);
 }
 
@@ -537,13 +557,7 @@ VOID PhpCreateProcessPropSheetWaitContext(
     PPH_PROCESS_WAITPROPCONTEXT waitContext;
     HANDLE processHandle;
 
-    if (!processItem->QueryHandle)
-        return;
-    if (processItem->ProcessId == NtCurrentProcessId())
-        return;
-    // On Windows 8.1 and above, processes without threads are reflected processes
-    // which will not terminate if we have a handle open. (wj32)
-    if (processItem->UserTime.QuadPart + processItem->KernelTime.QuadPart == 0 && processItem->NumberOfThreads == 0)
+    if (!processItem->QueryHandle || processItem->ProcessId == NtCurrentProcessId())
         return;
 
     if (!NT_SUCCESS(PhOpenProcess(
@@ -566,7 +580,7 @@ VOID PhpCreateProcessPropSheetWaitContext(
         PhpProcessPropertiesWaitCallback,
         waitContext,
         INFINITE,
-        WT_EXECUTEONLYONCE | WT_EXECUTEINWAITTHREAD
+        WT_EXECUTEONLYONCE | WT_EXECUTEINWAITTHREAD | WT_EXECUTELONGFUNCTION
         )))
     {
         PropContext->ProcessWaitContext = waitContext;
@@ -587,7 +601,7 @@ VOID PhpFlushProcessPropSheetWaitContextData(
     VOID
     )
 {
-    PSLIST_ENTRY entry;
+    PSLIST_ENTRY entry = NULL;
     PPH_PROCESS_WAITPROPCONTEXT data;
     PROCESS_BASIC_INFORMATION basicInfo;
 
@@ -782,7 +796,7 @@ PPH_LAYOUT_ITEM PhAddPropPageLayoutItem(
 
         // Calculate the margin from the original rectangle.
         GetWindowRect(Handle, &margin);
-        margin = PhMapRect(margin, dialogRect);
+        PhMapRect(&margin, &margin, &dialogRect);
         PhConvertRect(&margin, &dialogRect);
 
         item = PhAddLayoutItemEx(layoutManager, Handle, realParentItem, Anchor, margin);
@@ -864,7 +878,7 @@ NTSTATUS PhpProcessPropertiesThreadStart(
     // Token
     PhAddProcessPropPage2(
         PropContext,
-        PhCreateTokenPage(PhpOpenProcessTokenForPage, PropContext->ProcessItem->ProcessId, (PVOID)PropContext->ProcessItem->ProcessId, PhpProcessTokenHookProc)
+        PhCreateTokenPage(PhpOpenProcessTokenForPage, PhpCloseProcessTokenForPage, PropContext->ProcessItem->ProcessId, (PVOID)PropContext->ProcessItem->ProcessId, PhpProcessTokenHookProc)
         );
 
     // Modules

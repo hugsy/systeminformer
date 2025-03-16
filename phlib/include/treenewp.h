@@ -86,13 +86,22 @@ typedef struct _PH_TREENEW_CONTEXT
     RECT ClientRect;
     LONG HeaderHeight;
     LONG RowHeight;
-    ULONG VScrollWidth;
-    ULONG HScrollHeight;
+    LONG VScrollWidth;
+    LONG HScrollHeight;
     LONG VScrollPosition;
     LONG HScrollPosition;
     LONG FixedWidth; // width of the fixed part of the tree list
     LONG FixedWidthMinimum;
     LONG NormalLeft; // FixedWidth + 1 if there is a fixed column, otherwise 0
+
+    LONG WheelScrollLines;
+    LONG TextMarginPadding;
+    LONG CellMarginLeft;
+    LONG CellMarginRight;
+    LONG IconRightPadding;
+    LONG HeaderTextPadding;
+    LONG HeaderTextMargin;
+    LONG HeaderRowMargin;
 
     PPH_TREENEW_NODE FocusNode;
     ULONG HotNodeIndex;
@@ -100,6 +109,7 @@ typedef struct _PH_TREENEW_CONTEXT
 
     ULONG MouseDownLast;
     POINT MouseDownLocation;
+    POINT MouseLocation;
 
     PPH_TREENEW_CALLBACK Callback;
     PVOID CallbackContext;
@@ -189,14 +199,18 @@ typedef struct _PH_TREENEW_CONTEXT
             ULONG HeaderCustomDraw : 1;
             ULONG HeaderMouseActive : 1;
             ULONG HeaderDragging : 1;
-            ULONG HeaderUnused : 13;
+            ULONG HeaderUnused : 28;
 
-            ULONG HeaderHotColumn : 16; // HACK (dmex)
+            ULONG FillerBoxVisible : 1;
         };
     };
 
+    ULONG HeaderHotColumn;
+
     HTHEME HeaderThemeHandle;
     HFONT HeaderBoldFontHandle;
+    RECT HeaderLastHotRect;
+
     HDC HeaderBufferedDc;
     HBITMAP HeaderBufferedOldBitmap;
     HBITMAP HeaderBufferedBitmap;
@@ -205,6 +219,8 @@ typedef struct _PH_TREENEW_CONTEXT
     ULONG HeaderColumnCacheMax;
     PPH_STRINGREF HeaderStringCache;
     PVOID HeaderTextCache;
+
+    ULONG64 ScrollTickCount;
 } PH_TREENEW_CONTEXT, *PPH_TREENEW_CONTEXT;
 
 LRESULT CALLBACK PhTnpWndProc(
@@ -222,8 +238,8 @@ BOOLEAN NTAPI PhTnpNullCallback(
     _In_opt_ PVOID Context
     );
 
-VOID PhTnpCreateTreeNewContext(
-    _Out_ PPH_TREENEW_CONTEXT *Context
+PPH_TREENEW_CONTEXT PhTnpCreateTreeNewContext(
+    VOID
     );
 
 VOID PhTnpDestroyTreeNewContext(
@@ -235,7 +251,7 @@ VOID PhTnpDestroyTreeNewContext(
 BOOLEAN PhTnpOnCreate(
     _In_ HWND hwnd,
     _In_ PPH_TREENEW_CONTEXT Context,
-    _In_ CREATESTRUCT *CreateStruct
+    _In_ CONST CREATESTRUCT *CreateStruct
     );
 
 VOID PhTnpOnSize(
@@ -389,6 +405,7 @@ VOID PhTnpOnHScroll(
     _In_ USHORT Position
     );
 
+_Success_(return)
 BOOLEAN PhTnpOnNotify(
     _In_ HWND hwnd,
     _In_ PPH_TREENEW_CONTEXT Context,
@@ -396,7 +413,7 @@ BOOLEAN PhTnpOnNotify(
     _Out_ LRESULT *Result
     );
 
-ULONG_PTR PhTnpOnUserMessage(
+LRESULT PhTnpOnUserMessage(
     _In_ HWND hwnd,
     _In_ PPH_TREENEW_CONTEXT Context,
     _In_ ULONG Message,
@@ -455,8 +472,8 @@ VOID PhTnpSendMouseEvent(
     _In_ PH_TREENEW_MESSAGE Message,
     _In_ LONG CursorX,
     _In_ LONG CursorY,
-    _In_ PPH_TREENEW_NODE Node,
-    _In_ PPH_TREENEW_COLUMN Column,
+    _In_opt_ PPH_TREENEW_NODE Node,
+    _In_opt_ PPH_TREENEW_COLUMN Column,
     _In_ ULONG VirtualKeys
     );
 
@@ -477,6 +494,7 @@ BOOLEAN PhTnpRemoveColumn(
     _In_ ULONG Id
     );
 
+_Success_(return)
 BOOLEAN PhTnpCopyColumn(
     _In_ PPH_TREENEW_CONTEXT Context,
     _In_ ULONG Id,
@@ -518,6 +536,12 @@ VOID PhTnpDeleteColumnHeader(
 
 VOID PhTnpUpdateColumnHeaders(
     _In_ PPH_TREENEW_CONTEXT Context
+    );
+
+VOID PhTnpUpdateColumnHeadersDpiChanged(
+    _In_ PPH_TREENEW_CONTEXT Context,
+    _In_ LONG OldWindowDpi,
+    _In_ LONG NewWindowDpi
     );
 
 VOID PhTnpProcessResizeColumn(
@@ -590,6 +614,7 @@ BOOLEAN PhTnpGetCellParts(
     _Out_ PPH_TREENEW_CELL_PARTS Parts
     );
 
+_Success_(return)
 BOOLEAN PhTnpGetRowRects(
     _In_ PPH_TREENEW_CONTEXT Context,
     _In_ ULONG Start,
@@ -750,10 +775,11 @@ VOID PhTnpInitializeTooltips(
     _In_ PPH_TREENEW_CONTEXT Context
     );
 
-VOID PhTnpGetTooltipText(
+_Success_(return)
+BOOLEAN PhTnpGetTooltipText(
     _In_ PPH_TREENEW_CONTEXT Context,
     _In_ PPOINT Point,
-    _Outptr_ PWSTR *Text
+    _Out_ PWSTR *Text
     );
 
 BOOLEAN PhTnpPrepareTooltipShow(
@@ -775,11 +801,12 @@ PPH_TREENEW_COLUMN PhTnpHitTestHeader(
     _Out_opt_ PRECT ItemRect
     );
 
-VOID PhTnpGetHeaderTooltipText(
+_Success_(return)
+BOOLEAN PhTnpGetHeaderTooltipText(
     _In_ PPH_TREENEW_CONTEXT Context,
     _In_ BOOLEAN Fixed,
     _In_ PPOINT Point,
-    _Outptr_ PWSTR *Text
+    _Out_ PWSTR *Text
     );
 
 LRESULT CALLBACK PhTnpHeaderHookWndProc(
@@ -816,7 +843,8 @@ VOID PhTnpProcessDragSelect(
 // Double buffering
 
 VOID PhTnpCreateBufferedContext(
-    _In_ PPH_TREENEW_CONTEXT Context
+    _In_ PPH_TREENEW_CONTEXT Context,
+    _In_ HDC Hdc
     );
 
 VOID PhTnpDestroyBufferedContext(
@@ -830,10 +858,16 @@ VOID PhTnpGetMessagePos(
     _Out_ PPOINT ClientPoint
     );
 
+_Success_(return)
 BOOLEAN PhTnpGetColumnHeaderText(
     _In_ PPH_TREENEW_CONTEXT Context,
     _In_ PPH_TREENEW_COLUMN Column,
     _Out_ PPH_STRINGREF Text
+    );
+
+BOOLEAN TnHeaderCustomPaint(
+    _In_ PPH_TREENEW_CONTEXT Context,
+    _In_ LPNMCUSTOMDRAW CustomDraw
     );
 
 // Macros

@@ -112,9 +112,6 @@ extern PH_CIRCULAR_BUFFER_ULONG64 PhMaxIoWriteHistory;
 #endif
 
 // begin_phapppub
-#define DPCS_PROCESS_ID ((HANDLE)(LONG_PTR)-2)
-#define INTERRUPTS_PROCESS_ID ((HANDLE)(LONG_PTR)-3)
-
 // DPCs, Interrupts and System Idle Process are not real.
 // Non-"real" processes can never be opened.
 #define PH_IS_REAL_PROCESS_ID(ProcessId) ((LONG_PTR)(ProcessId) > 0)
@@ -127,7 +124,6 @@ extern PH_CIRCULAR_BUFFER_ULONG64 PhMaxIoWriteHistory;
 // end_phapppub
 
 // begin_phapppub
-typedef enum _VERIFY_RESULT VERIFY_RESULT;
 typedef struct _PH_PROCESS_RECORD *PPH_PROCESS_RECORD;
 
 typedef struct _PH_IMAGELIST_ITEM
@@ -149,8 +145,6 @@ typedef struct _PH_PROCESS_ITEM
     HANDLE ParentProcessId;
     PPH_STRING ProcessName;
     ULONG SessionId;
-    ULONG64 ProcessStartKey;
-
     LARGE_INTEGER CreateTime;
 
     // Handles
@@ -159,7 +153,6 @@ typedef struct _PH_PROCESS_ITEM
 
     // Parameters
 
-    PPH_STRING FileNameWin32;
     PPH_STRING FileName;
     PPH_STRING CommandLine;
 
@@ -173,16 +166,23 @@ typedef struct _PH_PROCESS_ITEM
 
     PSID Sid;
     TOKEN_ELEVATION_TYPE ElevationType;
-    MANDATORY_LEVEL IntegrityLevel;
-    PWSTR IntegrityString;
+    PH_INTEGRITY_LEVEL IntegrityLevel;
+    PPH_STRINGREF IntegrityString;
+    PS_PROTECTION Protection;
+    PPH_STRING ProtectionString;
 
     // Other
 
     HANDLE ConsoleHostProcessId;
+    ULONGLONG ProcessStartKey;
+    ULONGLONG CreateInterruptTime;
+    ULONGLONG SessionCreateTime;
+    ULONG ImageChecksum;
+    ULONG ImageTimeStamp;
 
     // Signature, Packed
 
-    VERIFY_RESULT VerifyResult;
+    ULONG VerifyResult;
     PPH_STRING VerifySignerName;
     ULONG ImportFunctions;
     ULONG ImportModules;
@@ -203,7 +203,7 @@ typedef struct _PH_PROCESS_ITEM
             ULONG IsPacked : 1;
             ULONG IsHandleValid : 1;
             ULONG IsSuspended : 1;
-            ULONG IsWow64 : 1;
+            ULONG IsWow64Process : 1;
             ULONG IsImmersive : 1;
             ULONG IsPartiallySuspended : 1;
             ULONG IsProtectedHandle : 1;
@@ -211,12 +211,19 @@ typedef struct _PH_PROCESS_ITEM
             ULONG IsSecureProcess : 1;
             ULONG IsSubsystemProcess : 1;
             ULONG IsPackagedProcess : 1;
+            ULONG IsBackgroundProcess : 1;
+            ULONG IsCrossSessionProcess : 1;
+            ULONG IsReflectedProcess : 1;
+            ULONG IsFrozenProcess : 1;
             ULONG IsUIAccessEnabled : 1;
             ULONG IsControlFlowGuardEnabled : 1;
             ULONG IsCetEnabled : 1;
             ULONG IsXfgEnabled : 1;
             ULONG IsXfgAuditEnabled : 1;
-            ULONG Spare : 10;
+            ULONG IsPowerThrottling : 1;
+            ULONG IsSystemProcess : 1;
+            ULONG IsSecureSystem : 1;
+            ULONG Spare : 3;
         };
     };
 
@@ -232,12 +239,12 @@ typedef struct _PH_PROCESS_ITEM
     WCHAR ProcessIdHexString[PH_PTR_STR_LEN_1];
     //WCHAR ParentProcessIdString[PH_INT32_STR_LEN_1];
     //WCHAR SessionIdString[PH_INT32_STR_LEN_1];
-    WCHAR LxssProcessIdString[PH_INT32_STR_LEN_1];
-    WCHAR ProcessStartKeyString[PH_PTR_STR_LEN_1];
 
     // Dynamic
 
     KPRIORITY BasePriority;
+    PKAFFINITY AffinityMasks; // PhSystemProcessorInformation.NumberOfProcessorGroups
+    ULONG AffinityPopulationCount;
     ULONG PriorityClass;
     LARGE_INTEGER KernelTime;
     LARGE_INTEGER UserTime;
@@ -264,7 +271,7 @@ typedef struct _PH_PROCESS_ITEM
 
     VM_COUNTERS_EX VmCounters;
     IO_COUNTERS IoCounters;
-    SIZE_T WorkingSetPrivateSize; // since VISTA
+    ULONGLONG WorkingSetPrivateSize; // since VISTA
     ULONG PeakNumberOfThreads; // since WIN7
     ULONG HardFaultCount; // since WIN7
 
@@ -288,7 +295,6 @@ typedef struct _PH_PROCESS_ITEM
 
     ULONGLONG ProcessSequenceNumber;
     PH_KNOWN_PROCESS_TYPE KnownProcessType;
-    PS_PROTECTION Protection;
     ULONG JobObjectId;
     SIZE_T SharedCommitCharge;
 
@@ -298,6 +304,7 @@ typedef struct _PH_PROCESS_ITEM
     FLOAT ImageCoherency;
 
     ULONG LxssProcessId;
+    HANDLE FreezeHandle;
 
 } PH_PROCESS_ITEM, *PPH_PROCESS_ITEM;
 // end_phapppub
@@ -370,6 +377,7 @@ PhEnumProcessItems(
     );
 // end_phapppub
 
+typedef enum _VERIFY_RESULT VERIFY_RESULT;
 typedef struct _PH_VERIFY_FILE_INFO *PPH_VERIFY_FILE_INFO;
 
 VERIFY_RESULT PhVerifyFileWithAdditionalCatalog(
@@ -523,12 +531,20 @@ PhGetProcessSmallImageList(
     );
 
 // Note: Can only be called from same thread as process provider. (dmex)
+_Success_(return)
 PHAPPAPI
 BOOLEAN
 NTAPI
 PhDuplicateProcessInformation(
-    _Out_ PPVOID ProcessInformation
+    _Outptr_ PPVOID ProcessInformation
     );
 // end_phapppub
+
+PPH_PROCESS_ITEM
+PhCreateProcessItemFromHandle(
+    _In_ HANDLE ProcessId,
+    _In_ HANDLE ProcessHandle,
+    _In_ BOOLEAN TerminatedProcess
+    );
 
 #endif

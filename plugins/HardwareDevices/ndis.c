@@ -16,6 +16,7 @@ BOOLEAN NetworkAdapterQuerySupported(
     _In_ HANDLE DeviceHandle
     )
 {
+    static NDIS_OID objectIdQuery = OID_GEN_SUPPORTED_LIST;
     NTSTATUS status;
     BOOLEAN ndisQuerySupported = FALSE;
     BOOLEAN adapterNameSupported = FALSE;
@@ -33,7 +34,7 @@ BOOLEAN NetworkAdapterQuerySupported(
     status = PhDeviceIoControlFile(
         DeviceHandle,
         IOCTL_NDIS_QUERY_GLOBAL_STATS,
-        &(NDIS_OID) { OID_GEN_SUPPORTED_LIST },
+        &objectIdQuery,
         sizeof(NDIS_OID),
         objectIdBuffer,
         objectIdBufferLength,
@@ -49,7 +50,7 @@ BOOLEAN NetworkAdapterQuerySupported(
         status = PhDeviceIoControlFile(
             DeviceHandle,
             IOCTL_NDIS_QUERY_GLOBAL_STATS,
-            &(NDIS_OID) { OID_GEN_SUPPORTED_LIST },
+            &objectIdQuery,
             sizeof(NDIS_OID),
             objectIdBuffer,
             objectIdBufferLength,
@@ -105,12 +106,13 @@ BOOLEAN NetworkAdapterQueryNdisVersion(
     _Out_opt_ PUINT MinorVersion
     )
 {
+    static NDIS_OID objectIdQuery = OID_GEN_DRIVER_VERSION; // OID_GEN_VENDOR_DRIVER_VERSION
     ULONG versionResult = 0;
 
     if (NT_SUCCESS(PhDeviceIoControlFile(
         DeviceHandle,
         IOCTL_NDIS_QUERY_GLOBAL_STATS,
-        &(NDIS_OID) { OID_GEN_DRIVER_VERSION }, // OID_GEN_VENDOR_DRIVER_VERSION
+        &objectIdQuery,
         sizeof(NDIS_OID),
         &versionResult,
         sizeof(versionResult),
@@ -186,14 +188,13 @@ PPH_STRING NetworkAdapterQueryNameFromDeviceGuid(
     // Query adapter description using undocumented function. (dmex)
     static ULONG (WINAPI* NhGetInterfaceNameFromDeviceGuid_I)(
         _In_ PGUID DeviceGuid,
-        _Out_writes_(InterfaceDescriptionLength) PWSTR InterfaceDescription,
-        _Inout_ PSIZE_T InterfaceDescriptionLength,
+        _Out_writes_(InterfaceDescriptionLength) PWCHAR InterfaceDescription,
+        _Inout_ PULONG InterfaceDescriptionLength,
         _In_ BOOL Cache,
         _In_ BOOL Refresh
         ) = NULL;
-    GUID interfaceGuid = { 0 };
     WCHAR adapterAlias[NDIS_IF_MAX_STRING_SIZE + 1] = L"";
-    SIZE_T adapterAliasLength = sizeof(adapterAlias);
+    ULONG adapterAliasLength = sizeof(adapterAlias);
 
     if (!NhGetInterfaceNameFromDeviceGuid_I)
     {
@@ -302,13 +303,14 @@ PPH_STRING NetworkAdapterQueryName(
     _In_ HANDLE DeviceHandle
     )
 {
+    static NDIS_OID objectIdQuery = OID_GEN_FRIENDLY_NAME;
     ULONG adapterNameReturnLength;
     WCHAR adapterName[NDIS_IF_MAX_STRING_SIZE + 1] = L"";
 
     if (NT_SUCCESS(PhDeviceIoControlFile(
         DeviceHandle,
         IOCTL_NDIS_QUERY_GLOBAL_STATS,
-        &(NDIS_OID) { OID_GEN_FRIENDLY_NAME },
+        &objectIdQuery,
         sizeof(NDIS_OID),
         adapterName,
         sizeof(adapterName),
@@ -338,6 +340,7 @@ NTSTATUS NetworkAdapterQueryStatistics(
     _Out_ PNDIS_STATISTICS_INFO Info
     )
 {
+    static NDIS_OID objectIdQuery = OID_GEN_STATISTICS;
     NDIS_STATISTICS_INFO result;
 
     memset(&result, 0, sizeof(NDIS_STATISTICS_INFO));
@@ -348,7 +351,7 @@ NTSTATUS NetworkAdapterQueryStatistics(
     return PhDeviceIoControlFile(
         DeviceHandle,
         IOCTL_NDIS_QUERY_GLOBAL_STATS,
-        &(NDIS_OID) { OID_GEN_STATISTICS },
+        &objectIdQuery,
         sizeof(NDIS_OID),
         Info,
         sizeof(NDIS_STATISTICS_INFO),
@@ -361,6 +364,7 @@ NTSTATUS NetworkAdapterQueryLinkState(
     _Out_ PNDIS_LINK_STATE State
     )
 {
+    static NDIS_OID objectIdQuery = OID_GEN_LINK_STATE; // OID_GEN_MEDIA_CONNECT_STATUS
     NDIS_LINK_STATE result;
 
     memset(&result, 0, sizeof(NDIS_LINK_STATE));
@@ -371,7 +375,7 @@ NTSTATUS NetworkAdapterQueryLinkState(
     return PhDeviceIoControlFile(
         DeviceHandle,
         IOCTL_NDIS_QUERY_GLOBAL_STATS,
-        &(NDIS_OID) { OID_GEN_LINK_STATE }, // OID_GEN_MEDIA_CONNECT_STATUS
+        &objectIdQuery,
         sizeof(NDIS_OID),
         State,
         sizeof(NDIS_LINK_STATE),
@@ -385,16 +389,18 @@ BOOLEAN NetworkAdapterQueryMediaType(
     _Out_ PNDIS_PHYSICAL_MEDIUM Medium
     )
 {
+    NDIS_OID objectIdQuery;
     NDIS_MEDIUM adapterType;
     NDIS_PHYSICAL_MEDIUM adapterMediaType;
 
+    objectIdQuery = OID_GEN_PHYSICAL_MEDIUM_EX;
     adapterMediaType = NdisPhysicalMediumUnspecified;
 
     if (NT_SUCCESS(PhDeviceIoControlFile(
         DeviceHandle,
         IOCTL_NDIS_QUERY_GLOBAL_STATS,
-        &(NDIS_OID) { OID_GEN_PHYSICAL_MEDIUM_EX },
-        sizeof(NDIS_OID),
+        &objectIdQuery,
+        sizeof(objectIdQuery),
         &adapterMediaType,
         sizeof(adapterMediaType),
         NULL
@@ -404,13 +410,14 @@ BOOLEAN NetworkAdapterQueryMediaType(
         return TRUE;
     }
 
+    objectIdQuery = OID_GEN_PHYSICAL_MEDIUM;
     adapterMediaType = NdisPhysicalMediumUnspecified;
 
     if (NT_SUCCESS(PhDeviceIoControlFile(
         DeviceHandle,
         IOCTL_NDIS_QUERY_GLOBAL_STATS,
-        &(NDIS_OID) { OID_GEN_PHYSICAL_MEDIUM },
-        sizeof(NDIS_OID),
+        &objectIdQuery,
+        sizeof(objectIdQuery),
         &adapterMediaType,
         sizeof(adapterMediaType),
         NULL
@@ -420,13 +427,14 @@ BOOLEAN NetworkAdapterQueryMediaType(
         return TRUE;
     }
 
+    objectIdQuery = OID_GEN_MEDIA_SUPPORTED; // OID_GEN_MEDIA_IN_USE
     adapterType = NdisMediumMax;
 
     if (NT_SUCCESS(PhDeviceIoControlFile(
         DeviceHandle,
         IOCTL_NDIS_QUERY_GLOBAL_STATS,
-        &(NDIS_OID) { OID_GEN_MEDIA_SUPPORTED }, // OID_GEN_MEDIA_IN_USE
-        sizeof(NDIS_OID),
+        &objectIdQuery,
+        sizeof(objectIdQuery),
         &adapterType,
         sizeof(adapterType),
         NULL
@@ -462,6 +470,7 @@ NTSTATUS NetworkAdapterQueryLinkSpeed(
     _Out_ PULONG64 LinkSpeed
     )
 {
+    static NDIS_OID objectIdQuery = OID_GEN_LINK_SPEED;
     NTSTATUS status;
     NDIS_LINK_SPEED result;
 
@@ -470,7 +479,7 @@ NTSTATUS NetworkAdapterQueryLinkSpeed(
     status = PhDeviceIoControlFile(
         DeviceHandle,
         IOCTL_NDIS_QUERY_GLOBAL_STATS,
-        &(NDIS_OID) { OID_GEN_LINK_SPEED },
+        &objectIdQuery,
         sizeof(NDIS_OID),
         &result,
         sizeof(NDIS_LINK_SPEED),

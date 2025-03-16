@@ -13,6 +13,7 @@
 #include <phapp.h>
 #include <procprp.h>
 #include <procprpp.h>
+#include <settings.h>
 
 #include <cpysave.h>
 #include <emenu.h>
@@ -144,11 +145,14 @@ VOID PhShowMemoryContextMenu(
         PH_PLUGIN_MENU_INFORMATION menuInfo;
 
         menu = PhCreateEMenu();
-        PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_MEMORY_READWRITEMEMORY, L"&Read/Write memory", NULL, NULL), ULONG_MAX);
-        PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_MEMORY_SAVE, L"&Save...", NULL, NULL), ULONG_MAX);
+        PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_MEMORY_READWRITEMEMORY, L"&Read/Write memory...", NULL, NULL), ULONG_MAX);
         PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_MEMORY_CHANGEPROTECTION, L"Change &protection...", NULL, NULL), ULONG_MAX);
+        PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_MEMORY_EMPTYWORKINGSET, L"&Empty working set...", NULL, NULL), ULONG_MAX);
+        PhInsertEMenuItem(menu, PhCreateEMenuSeparator(), ULONG_MAX);
         PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_MEMORY_FREE, L"&Free", NULL, NULL), ULONG_MAX);
         PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_MEMORY_DECOMMIT, L"&Decommit", NULL, NULL), ULONG_MAX);
+        PhInsertEMenuItem(menu, PhCreateEMenuSeparator(), ULONG_MAX);
+        PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_MEMORY_SAVE, L"&Save...", NULL, NULL), ULONG_MAX);
         PhInsertEMenuItem(menu, PhCreateEMenuSeparator(), ULONG_MAX);
         PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_MEMORY_COPY, L"&Copy\bCtrl+C", NULL, NULL), ULONG_MAX);
         PhSetFlagsEMenuItem(menu, ID_MEMORY_READWRITEMEMORY, PH_EMENU_DEFAULT, PH_EMENU_DEFAULT);
@@ -201,7 +205,7 @@ BOOLEAN PhpMemoryTreeFilterCallback(
     PPH_MEMORY_CONTEXT memoryContext = Context;
     PPH_MEMORY_NODE memoryNode = (PPH_MEMORY_NODE)Node;
     PPH_MEMORY_ITEM memoryItem = memoryNode->MemoryItem;
-    PPH_STRINGREF string;
+    PCPH_STRINGREF string;
     PPH_STRING useText;
 
     if (memoryContext->ListContext.HideFreeRegions && FlagOn(memoryItem->State, MEM_FREE))
@@ -657,7 +661,7 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
                         showMemoryEditor->SelectOffset = ULONG_MAX;
                         showMemoryEditor->SelectLength = 0;
 
-                        ProcessHacker_ShowMemoryEditor(showMemoryEditor);
+                        SystemInformer_ShowMemoryEditor(showMemoryEditor);
                     }
                 }
                 break;
@@ -800,6 +804,23 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
                         if (PhUiFreeMemory(hwndDlg, processItem->ProcessId, memoryNode->MemoryItem, FALSE))
                         {
                             PhRemoveMemoryNode(&memoryContext->ListContext, &memoryContext->MemoryItemList, memoryNode);
+                        }
+
+                        PhDereferenceObject(memoryNode->MemoryItem);
+                    }
+                }
+                break;
+            case ID_MEMORY_EMPTYWORKINGSET:
+                {
+                    PPH_MEMORY_NODE memoryNode = PhGetSelectedMemoryNode(&memoryContext->ListContext);
+
+                    if (memoryNode)
+                    {
+                        PhReferenceObject(memoryNode->MemoryItem);
+
+                        if (PhUiEmptyProcessMemoryWorkingSet(hwndDlg, processItem->ProcessId, memoryNode->MemoryItem))
+                        {
+                            // Refresh counters or statistics.
                         }
 
                         PhDereferenceObject(memoryNode->MemoryItem);
@@ -959,7 +980,10 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
                         }
                         else if (selectedItem->Id == PH_MEMORY_FILTER_MENU_STRINGS)
                         {
-                            PhShowMemoryStringDialog(hwndDlg, processItem);
+                            if (PhGetIntegerSetting(L"EnableMemStringsTreeDialog"))
+                                PhShowMemoryStringTreeDialog(hwndDlg, processItem);
+                            else
+                                PhShowMemoryStringDialog(hwndDlg, processItem);
                         }
                         else if (selectedItem->Id == PH_MEMORY_FILTER_MENU_SAVE)
                         {
@@ -1009,7 +1033,7 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
                                         showMemoryEditor->SelectOffset = (ULONG)((ULONG_PTR)address - (ULONG_PTR)memoryItem->BaseAddress);
                                         showMemoryEditor->SelectLength = 0;
 
-                                        ProcessHacker_ShowMemoryEditor(showMemoryEditor);
+                                        SystemInformer_ShowMemoryEditor(showMemoryEditor);
                                         break;
                                     }
                                     else

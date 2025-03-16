@@ -13,7 +13,7 @@
 
 #include <trace.h>
 
-PAGED_FILE();
+KPH_PAGED_FILE();
 
 #define KPH_ALPC_NAME_BUFFER_SIZE ((MAX_PATH * 2) + sizeof(OBJECT_NAME_INFORMATION))
 
@@ -48,7 +48,7 @@ NTSTATUS KphpReferenceAlpcCommunicationPorts(
     PVOID serverPort;
     PVOID clientPort;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     *ConnectionPort = NULL;
     *ServerPort = NULL;
@@ -190,7 +190,7 @@ NTSTATUS KphpAlpcBasicInfo(
     PEPROCESS process;
     PVOID portObjectLock;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     RtlZeroMemory(Info, sizeof(*Info));
 
@@ -265,7 +265,7 @@ NTSTATUS KphpAlpcCommunicationInfo(
     PVOID serverPort;
     PVOID clientPort;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     RtlZeroMemory(Info, sizeof(*Info));
 
@@ -366,7 +366,7 @@ NTSTATUS KphpAlpcCopyPortName(
     NTSTATUS status;
     ULONG returnLength;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     if (String)
     {
@@ -438,7 +438,7 @@ NTSTATUS KphpAlpcCommunicationNamesInfo(
     PVOID buffer;
     ULONG remainingLength;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     *ReturnLength = sizeof(KPH_ALPC_COMMUNICATION_NAMES_INFORMATION);
 
@@ -593,7 +593,7 @@ NTSTATUS KphAlpcQueryInformation(
     PVOID buffer;
     BYTE stackBuffer[64];
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     dyn = NULL;
     process = NULL;
@@ -774,19 +774,13 @@ NTSTATUS KphAlpcQueryInformation(
                 allocatedSize = sizeof(KPH_ALPC_COMMUNICATION_NAMES_INFORMATION);
             }
 
-            if (allocatedSize <= ARRAYSIZE(stackBuffer))
+            buffer = KphAllocatePagedA(allocatedSize,
+                                       KPH_TAG_ALPC_QUERY,
+                                       stackBuffer);
+            if (!buffer)
             {
-                RtlZeroMemory(stackBuffer, ARRAYSIZE(stackBuffer));
-                buffer = stackBuffer;
-            }
-            else
-            {
-                buffer = KphAllocatePaged(allocatedSize, KPH_TAG_ALPC_QUERY);
-                if (!buffer)
-                {
-                    status = STATUS_INSUFFICIENT_RESOURCES;
-                    goto Exit;
-                }
+                status = STATUS_INSUFFICIENT_RESOURCES;
+                goto Exit;
             }
 
             info = buffer;
@@ -841,9 +835,9 @@ NTSTATUS KphAlpcQueryInformation(
 
 Exit:
 
-    if (buffer && (buffer != stackBuffer))
+    if (buffer)
     {
-        KphFree(buffer, KPH_TAG_ALPC_QUERY);
+        KphFreeA(buffer, KPH_TAG_ALPC_QUERY, stackBuffer);
     }
 
     if (port)

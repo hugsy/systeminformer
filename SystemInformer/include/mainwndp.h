@@ -20,7 +20,7 @@
 #define TIMER_FLUSH_PROCESS_QUERY_DATA 1
 #define TIMER_ICON_CLICK_ACTIVATE 2
 #define TIMER_ICON_RESTORE_HOVER 3
-#define TIMER_ICON_POPUPOPEN 3
+#define TIMER_ICON_POPUPOPEN 4
 
 typedef union _PH_MWP_NOTIFICATION_DETAILS
 {
@@ -67,7 +67,8 @@ VOID PhMwpApplyUpdateInterval(
     );
 
 VOID PhMwpInitializeMetrics(
-    _In_ HWND WindowHandle
+    _In_ HWND WindowHandle,
+    _In_ LONG WindowDpi
     );
 
 VOID PhMwpInitializeControls(
@@ -102,7 +103,7 @@ VOID PhMwpOnEndSession(
 VOID PhMwpOnSettingChange(
     _In_ HWND WindowHandle,
     _In_opt_ ULONG Action,
-    _In_opt_ PWSTR Metric
+    _In_opt_ PCWSTR Metric
     );
 
 VOID PhMwpOnCommand(
@@ -165,7 +166,8 @@ VOID PhMwpOnDeviceChanged(
     );
 
 VOID PhMwpOnDpiChanged(
-    _In_ HWND WindowHandle
+    _In_ HWND WindowHandle,
+    _In_ LONG WindowDpi
     );
 
 LRESULT PhMwpOnUserMessage(
@@ -268,7 +270,7 @@ VOID PhMwpNotifyTabControl(
     );
 
 VOID PhMwpSelectionChangedTabControl(
-    _In_ INT32 OldIndex
+    _In_ LONG OldIndex
     );
 
 PPH_MAIN_TAB_PAGE PhMwpCreatePage(
@@ -284,7 +286,7 @@ PPH_MAIN_TAB_PAGE PhMwpFindPage(
     );
 
 PPH_MAIN_TAB_PAGE PhMwpCreateInternalPage(
-    _In_ PWSTR Name,
+    _In_ PCWSTR Name,
     _In_ ULONG Flags,
     _In_ PPH_MAIN_TAB_PAGE_CALLBACK Callback
     );
@@ -343,7 +345,7 @@ BOOLEAN PhMwpCurrentUserProcessTreeFilter(
     );
 
 VOID PhMwpToggleSignedProcessTreeFilter(
-    VOID
+    _In_ HWND WindowHandle
     );
 
 VOID PhMwpToggleMicrosoftProcessTreeFilter(
@@ -361,12 +363,14 @@ BOOLEAN PhMwpMicrosoftProcessTreeFilter(
     );
 
 BOOLEAN PhMwpExecuteProcessPriorityCommand(
+    _In_ HWND WindowHandle,
     _In_ ULONG Id,
     _In_ PPH_PROCESS_ITEM *Processes,
     _In_ ULONG NumberOfProcesses
     );
 
 BOOLEAN PhMwpExecuteProcessIoPriorityCommand(
+    _In_ HWND WindowHandle,
     _In_ ULONG Id,
     _In_ PPH_PROCESS_ITEM *Processes,
     _In_ ULONG NumberOfProcesses

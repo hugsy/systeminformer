@@ -45,7 +45,7 @@ INT CALLBACK PvpStandardPropPageProc(
     );
 
 PPV_PROPCONTEXT HdCreatePropContext(
-    _In_ PWSTR Caption
+    _In_ PCWSTR Caption
     )
 {
     PPV_PROPCONTEXT propContext;
@@ -302,7 +302,7 @@ HWND PvpCreateControlButton(
         // Create the refresh button.
         GetClientRect(PropSheetWindow, &clientRect);
         GetWindowRect(GetDlgItem(PropSheetWindow, IDCANCEL), &rect);
-        MapWindowPoints(NULL, PropSheetWindow, (POINT*)& rect, 2);
+        MapWindowRect(NULL, PropSheetWindow, &rect);
         PropSheetContext->OptionsButtonWindowHandle = CreateWindowEx(
             WS_EX_NOPARENTNOTIFY,
             WC_BUTTON,
@@ -544,7 +544,7 @@ PPH_LAYOUT_ITEM PvAddPropPageLayoutItemEx(
 
         // Calculate the margin from the original rectangle.
         GetWindowRect(Handle, &margin);
-        margin = PhMapRect(margin, dialogRect);
+        PhMapRect(&margin, &margin, &dialogRect);
         PhConvertRect(&margin, &dialogRect);
 
         item = PhAddLayoutItemEx(layoutManager, Handle, realParentItem, Anchor, margin);

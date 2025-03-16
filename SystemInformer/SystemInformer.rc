@@ -3,7 +3,6 @@
 #pragma code_page(65001)
 
 #include "resource.h"
-#include <sistatus.rc>
 
 #define APSTUDIO_READONLY_SYMBOLS
 /////////////////////////////////////////////////////////////////////////////
@@ -16,10 +15,10 @@
 #undef APSTUDIO_READONLY_SYMBOLS
 
 /////////////////////////////////////////////////////////////////////////////
-// Neutral resources
+// English (United States) resources
 
-#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_NEU)
-LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 
 #ifdef APSTUDIO_INVOKED
 /////////////////////////////////////////////////////////////////////////////
@@ -44,6 +43,36 @@ BEGIN
 END
 
 #endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// PNG
+//
+
+IDB_SEARCH_ACTIVE_MODERN_LIGHT PNG                     "resources\\search_stop_modern_light.png"
+
+IDB_SEARCH_ACTIVE       PNG                     "resources\\active_search.png"
+
+IDB_SEARCH_INACTIVE     PNG                     "resources\\inactive_search.png"
+
+IDB_SEARCH_ACTIVE_SMALL PNG                     "resources\\active_search_small.png"
+
+IDB_SEARCH_INACTIVE_SMALL PNG                     "resources\\inactive_search_small.png"
+
+IDB_SEARCH_REGEX_MODERN_DARK PNG                     "resources\\regex_modern_dark.png"
+
+IDB_SEARCH_REGEX_MODERN_LIGHT PNG                     "resources\\regex_modern_light.png"
+
+IDB_SEARCH_CASE_MODERN_DARK PNG                     "resources\\case_sensitive_modern_dark.png"
+
+IDB_SEARCH_CASE_MODERN_LIGHT PNG                     "resources\\case_sensitive_modern_light.png"
+
+IDB_SEARCH_ACTIVE_MODERN_DARK PNG                     "resources\\search_stop_modern_dark.png"
+
+IDB_SEARCH_INACTIVE_MODERN_LIGHT PNG                     "resources\\search_modern_light.png"
+
+IDB_SEARCH_INACTIVE_MODERN_DARK PNG                     "resources\\search_modern_dark.png"
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -249,10 +278,10 @@ STYLE DS_SETFONT | DS_FIXEDSYS | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_POPUP | WS
 CAPTION "Find Handles or DLLs"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
-    EDITTEXT        IDC_FILTER,97,4,207,13,ES_AUTOHSCROLL
-    PUSHBUTTON      "Find",IDOK,306,3,50,14
-    COMBOBOX        IDC_FILTERTYPE,2,4,93,30,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    CONTROL         "",IDC_TREELIST,"PhTreeNew",WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_TABSTOP | 0x2,2,19,353,212,WS_EX_CLIENTEDGE
+    EDITTEXT        IDC_FILTER,97,4,207,14,ES_AUTOHSCROLL
+    PUSHBUTTON      "Find",IDOK,306,4,50,14
+    COMBOBOX        IDC_FILTERTYPE,2,5,93,30,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "",IDC_TREELIST,"PhTreeNew",WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_TABSTOP | 0x2,2,20,353,212,WS_EX_CLIENTEDGE
 END
 
 IDD_THRDSTACKS DIALOGEX 0, 0, 443, 254
@@ -288,9 +317,9 @@ BEGIN
     PUSHBUTTON      "Default token",IDC_DEFAULTPERM,41,239,50,14
 END
 
-IDD_HIDDENPROCESSES DIALOGEX 0, 0, 337, 221
+IDD_ZOMBIEPROCESSES DIALOGEX 0, 0, 337, 221
 STYLE DS_SETFONT | DS_FIXEDSYS | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
-CAPTION "Hidden Processes"
+CAPTION "Zombie Processes"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
     LTEXT           "Processes highlighted red are hidden while those highlighted grey have terminated.",IDC_INTRO,7,7,323,12
@@ -841,6 +870,36 @@ BEGIN
     PUSHBUTTON      "Cancel",IDCANCEL,67,25,50,14
 END
 
+IDD_MEMRESULTS DIALOGEX 0, 0, 313, 266
+STYLE DS_SETFONT | DS_FIXEDSYS | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+CAPTION "Results"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "Results.",IDC_INTRO,7,9,299,8
+    CONTROL         "",IDC_LIST,"SysListView32",LVS_REPORT | LVS_SHOWSELALWAYS | LVS_ALIGNLEFT | LVS_OWNERDATA | LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP,7,21,299,221
+    PUSHBUTTON      "Filter",IDC_FILTER,7,245,50,14
+    PUSHBUTTON      "Save...",IDC_SAVE,149,245,50,14
+    PUSHBUTTON      "Copy",IDC_COPY,203,245,50,14
+    DEFPUSHBUTTON   "Close",IDOK,256,245,50,14
+END
+
+IDD_MEMSTRING DIALOGEX 0, 0, 241, 86
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "String Search"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "Minimum length:",IDC_STATIC,7,8,54,8
+    EDITTEXT        IDC_MINIMUMLENGTH,67,7,51,12,ES_AUTOHSCROLL
+    CONTROL         "Detect Unicode",IDC_DETECTUNICODE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,22,65,10
+    LTEXT           "Search in the following types of memory regions:",IDC_STATIC,7,36,157,8
+    CONTROL         "Private",IDC_PRIVATE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,49,39,10
+    CONTROL         "Image",IDC_IMAGE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,55,49,36,10
+    CONTROL         "Mapped",IDC_MAPPED,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,101,49,41,10
+    DEFPUSHBUTTON   "OK",IDOK,131,65,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,184,65,50,14
+    CONTROL         "Extended Unicode",IDC_EXTENDEDUNICODE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,80,22,74,10
+END
+
 IDD_OPTGRAPHS DIALOGEX 0, 0, 250, 156
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Graphs"
@@ -973,15 +1032,17 @@ BEGIN
     LTEXT           "Graph layout",IDC_GRAPH_LAYOUT,0,22,315,82,NOT WS_VISIBLE
 END
 
-IDD_SYSINFO_CPUPANEL DIALOGEX 0, 0, 351, 86
+IDD_SYSINFO_CPUPANEL DIALOGEX 0, 0, 506, 86
 STYLE DS_SETFONT | DS_FIXEDSYS | WS_CHILD | WS_SYSMENU
 EXSTYLE WS_EX_CONTROLPARENT
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
-    LTEXT           "Utilization:",IDC_STATIC,0,3,34,8
+    LTEXT           "Utilization:",IDC_STATIC,6,3,34,8
     LTEXT           "Speed:",IDC_STATIC,108,3,24,8
-    LTEXT           "Static",IDC_UTILIZATION,40,0,62,15
+    LTEXT           "Virtualization:",IDC_STATIC,247,3,60,8
+    LTEXT           "Static",IDC_UTILIZATION,46,0,60,15
     LTEXT           "Static",IDC_SPEED,137,0,100,15
+    LTEXT           "Static",IDC_VIRTUALIZATION,296,0,500,15
     GROUPBOX        "System",IDC_STATIC,0,17,97,55
     LTEXT           "Processes",IDC_STATIC,7,28,33,8
     LTEXT           "Threads",IDC_STATIC,7,38,27,8
@@ -1010,9 +1071,16 @@ BEGIN
     RTEXT           "Static",IDC_ZSOCKETS,299,38,46,8,SS_ENDELLIPSIS
     RTEXT           "Static",IDC_ZLOGICAL,314,48,31,8,SS_ENDELLIPSIS
     RTEXT           "Static",IDC_ZLATENCY,293,58,52,8,SS_ENDELLIPSIS
+    GROUPBOX        "Hardware",IDC_STATIC,354,17,97,55
+    LTEXT           "L1 cache",IDC_STATIC,362,28,52,8
+    RTEXT           "Static",IDC_ZL1CACHE_V,394,28,52,8,SS_ENDELLIPSIS
+    LTEXT           "L2 cache",IDC_STATIC,362,38,53,8
+    RTEXT           "Static",IDC_ZL2CACHE_V,394,38,52,8,SS_ENDELLIPSIS
+    LTEXT           "L3 cache",IDC_STATIC,362,48,53,8
+    RTEXT           "Static",IDC_ZL3CACHE_V,394,48,52,8,SS_ENDELLIPSIS
 END
 
-IDD_SYSINFO_MEMPANEL DIALOGEX 0, 0, 358, 171
+IDD_SYSINFO_MEMPANEL DIALOGEX 0, 0, 488, 171
 STYLE DS_SETFONT | DS_FIXEDSYS | WS_CHILD | WS_SYSMENU
 EXSTYLE WS_EX_CONTROLPARENT
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
@@ -1062,7 +1130,7 @@ BEGIN
     RTEXT           "Static",IDC_ZLISTFREE_V,302,21,49,8,SS_ENDELLIPSIS
     RTEXT           "Static",IDC_ZLISTMODIFIED_V,298,31,53,8,SS_ENDELLIPSIS
     LTEXT           "Free",IDC_STATIC,242,21,16,8
-    LTEXT           "Modified no-write",IDC_STATIC,242,41,56,8
+    LTEXT           "Modified no-write",IDC_STATIC,242,41,60,8
     RTEXT           "Static",IDC_ZLISTMODIFIEDNOWRITE_V,303,41,48,8,SS_ENDELLIPSIS
     LTEXT           "Standby",IDC_STATIC,242,61,28,8
     LTEXT           "Priority 0",IDC_STATIC,251,71,30,8
@@ -1091,7 +1159,7 @@ BEGIN
     LTEXT           "Page reads delta",IDC_STATIC,120,96,58,8
     LTEXT           "Mapped writes delta",IDC_STATIC,120,116,68,8
     RTEXT           "Static",IDC_ZPAGINGMAPPEDWRITESDELTA_V,191,116,31,8,SS_ENDELLIPSIS
-    LTEXT           "Modified pagefile",IDC_STATIC,242,51,55,8
+    LTEXT           "Modified pagefile",IDC_STATIC,242,51,60,8
     RTEXT           "Static",IDC_ZLISTMODIFIEDPAGEFILE_V,303,51,48,8,SS_ENDELLIPSIS
     PUSHBUTTON      "&More",IDC_MORE,242,152,50,14
     RTEXT           "Static",IDC_ZPHYSICALRESERVED_V,157,31,65,8,SS_ENDELLIPSIS
@@ -1102,6 +1170,17 @@ BEGIN
     LTEXT           "Mapped writes",IDC_STATIC,119,156,68,8
     RTEXT           "Static",IDC_ZMAPPEDWRITEIO,180,156,42,8,SS_ENDELLIPSIS
     PUSHBUTTON      "&Empty",IDC_EMPTY,299,152,50,14
+    GROUPBOX        "Hardware",IDC_STATIC,361,0,114,63
+    LTEXT           "Slots used",IDC_STATIC,369,11,40,8
+    RTEXT           "Static",IDC_ZMEMSLOTS_V,415,11,54,8,SS_ENDELLIPSIS
+    LTEXT           "Form factor",IDC_STATIC,369,21,48,8
+    RTEXT           "Static",IDC_ZMEMFORMFACTOR_V,419,21,50,8,SS_ENDELLIPSIS
+    LTEXT           "Technology",IDC_STATIC,369,31,48,8
+    RTEXT           "Static",IDC_ZMEMTECHNOLOGY_V,419,31,50,8,SS_ENDELLIPSIS
+    LTEXT           "Memory type",IDC_STATIC,369,41,48,8
+    RTEXT           "Static",IDC_ZMEMTYPE_V,419,41,50,8,SS_ENDELLIPSIS
+    LTEXT           "Speed",IDC_STATIC,369,51,26,8
+    RTEXT           "Static",IDC_ZMEMSPEED_V,397,51,72,8,SS_ENDELLIPSIS
 END
 
 IDD_SYSINFO_MEM DIALOGEX 0, 0, 316, 250
@@ -1363,26 +1442,44 @@ BEGIN
     CONTROL         "With handle data",IDC_MINIDUMP_WITH_HANDLE_DATA,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,37,177,10
     CONTROL         "Filter memory",IDC_MINIDUMP_FILTER_MEMORY,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,47,177,10
     CONTROL         "Scan memory",IDC_MINIDUMP_SCAN_MEMORY,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,57,177,10
-    CONTROL         "With unloaded modules",IDC_MINIDUMP_WITH_UNLOADED_MODULES,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,67,177,10
-    CONTROL         "With indirectly referenced memory",IDC_MINIDUMP_WITH_INDIRECT_REFERENCED_MEM,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,77,177,10
-    CONTROL         "Filter module paths",IDC_MINIDUMP_FILTER_MODULE_PATHS,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,87,179,10
-    CONTROL         "With process and thread data",IDC_MINIDUMP_WITH_PROC_THRD_DATA,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,97,177,10
-    CONTROL         "With private read-write memory",IDC_MINIDUMP_WITH_PRIVATE_RW_MEM,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,107,177,10
-    CONTROL         "Without optional data",IDC_MINIDUMP_WITHOUT_OPTIONAL_DATA,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,117,177,10
-    CONTROL         "With full memory info",IDC_MINIDUMP_WITH_FULL_MEM_INFO,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,127,177,10
+    CONTROL         "With unloaded modules",IDC_MINIDUMP_WITH_UNLOADED_MODULES,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,67,177,10
+    CONTROL         "With indirectly referenced memory",IDC_MINIDUMP_WITH_INDIRECT_REFERENCED_MEM,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,77,177,10
+    CONTROL         "Filter module paths",IDC_MINIDUMP_FILTER_MODULE_PATHS,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,87,179,10
+    CONTROL         "With process and thread data",IDC_MINIDUMP_WITH_PROC_THRD_DATA,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,97,177,10
+    CONTROL         "With private read-write memory",IDC_MINIDUMP_WITH_PRIVATE_RW_MEM,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,107,177,10
+    CONTROL         "Without optional data",IDC_MINIDUMP_WITHOUT_OPTIONAL_DATA,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,117,177,10
+    CONTROL         "With full memory info",IDC_MINIDUMP_WITH_FULL_MEM_INFO,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,127,177,10
     CONTROL         "With thread info",IDC_MINIDUMP_WITH_THRD_INFO,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,137,177,10
     CONTROL         "With code segments",IDC_MINIDUMP_WITH_CODE_SEGS,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,147,177,10
-    CONTROL         "Without auxiliary state",IDC_MINIDUMP_WITHOUT_AUXILIARY_STATE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,157,177,10
-    CONTROL         "With full auxiliary state",IDC_MINIDUMP_WITH_FULL_AUXILIARY_STATE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,167,177,10
-    CONTROL         "With private write-copy memory",IDC_MINIDUMP_WITH_PRIVATE_WRITE_COPY_MEM,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,177,177,10
-    CONTROL         "Ignore inaccessible memory",IDC_MINIDUMP_IGNORE_INACCESSIBLE_MEM,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,187,177,10
-    CONTROL         "With token information",IDC_MINIDUMP_WITH_TOKEN_INFO,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,197,177,10
-    CONTROL         "With module headers",IDC_MINIDUMP_WITH_MODULE_HEADERS,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,207,177,10
-    CONTROL         "With filter triage data",IDC_MINIDUMP_FILTER_TRIAGE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,217,177,10
-    CONTROL         "With AVX state context registers",IDC_MINIDUMP_WITH_AVXX_STATE_CONTEXT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,227,177,10
-    CONTROL         "With Intel processor trace data",IDC_MINIDUMP_WITH_IPT_TRACE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,237,177,10
-    CONTROL         "Scan inaccessible partial pages",IDC_MINIDUMP_SCAN_INACCESSIBLE_PARTIAL_PAGES,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,247,177,10
-    CONTROL         "Filter write-combined memory",IDC_MINIDUMP_FILTER_WRITE_COMBINE_MEM,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,257,177,10
+    CONTROL         "Without auxiliary state",IDC_MINIDUMP_WITHOUT_AUXILIARY_STATE,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,157,177,10
+    CONTROL         "With full auxiliary state",IDC_MINIDUMP_WITH_FULL_AUXILIARY_STATE,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,167,177,10
+    CONTROL         "With private write-copy memory",IDC_MINIDUMP_WITH_PRIVATE_WRITE_COPY_MEM,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,177,177,10
+    CONTROL         "Ignore inaccessible memory",IDC_MINIDUMP_IGNORE_INACCESSIBLE_MEM,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,187,177,10
+    CONTROL         "With token information",IDC_MINIDUMP_WITH_TOKEN_INFO,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,197,177,10
+    CONTROL         "With module headers",IDC_MINIDUMP_WITH_MODULE_HEADERS,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,207,177,10
+    CONTROL         "With filter triage data",IDC_MINIDUMP_FILTER_TRIAGE,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,217,177,10
+    CONTROL         "With AVX state context registers",IDC_MINIDUMP_WITH_AVXX_STATE_CONTEXT,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,227,177,10
+    CONTROL         "With Intel processor trace data",IDC_MINIDUMP_WITH_IPT_TRACE,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,237,177,10
+    CONTROL         "Scan inaccessible partial pages",IDC_MINIDUMP_SCAN_INACCESSIBLE_PARTIAL_PAGES,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,247,177,10
+    CONTROL         "Filter write-combined memory",IDC_MINIDUMP_FILTER_WRITE_COMBINE_MEM,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,257,177,10
     DEFPUSHBUTTON   "Save",IDOK,80,275,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,134,275,50,14
 END
@@ -1396,8 +1493,10 @@ BEGIN
     CONTROL         "Compress memory pages",IDC_COMPRESS,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,17,177,10
     CONTROL         "Capture user pages",IDC_USERMODE,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,27,177,10
     CONTROL         "Capture Hypervisor pages",IDC_HYPERVISOR,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,37,177,10
-    CONTROL         "Include nonessential Hypervisor pages",IDC_HYPERVISORNONESSENTIAL,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,47,177,10
-    CONTROL         "Only kernel thread stacks",IDC_ONLYKERNELTHREADSTACKS,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,57,177,10
+    CONTROL         "Include nonessential Hypervisor pages",IDC_HYPERVISORNONESSENTIAL,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,47,177,10
+    CONTROL         "Only kernel thread stacks",IDC_ONLYKERNELTHREADSTACKS,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,57,177,10
     DEFPUSHBUTTON   "Save",IDOK,80,76,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,134,76,50,14
 END
@@ -1437,12 +1536,13 @@ BEGIN
     EDITTEXT        IDC_SEARCH,7,218,135,14,ES_AUTOHSCROLL
 END
 
-IDD_OBJMAPPINGS DIALOGEX 0, 0, 260, 260
+IDD_OBJMAPPINGS DIALOGEX 0, 0, 300, 260
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Mappings"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
-    CONTROL         "",IDC_LIST,"SysListView32",LVS_REPORT | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS | LVS_ALIGNLEFT | WS_BORDER | WS_TABSTOP,7,7,246,246
+    CONTROL         "",IDC_LIST,"SysListView32",LVS_REPORT | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS | LVS_ALIGNLEFT | WS_BORDER | WS_TABSTOP,7,7,286,246
+    LTEXT           "Static",IDC_TEXT,7,7,286,246,NOT WS_VISIBLE
 END
 
 IDD_MODIFIEDPAGES DIALOGEX 0, 0, 351, 307
@@ -1453,6 +1553,20 @@ BEGIN
     CONTROL         "",IDC_LIST,"SysListView32",LVS_REPORT | LVS_SHOWSELALWAYS | LVS_ALIGNLEFT | WS_BORDER | WS_TABSTOP,2,2,347,286
     PUSHBUTTON      "Refresh",IDC_REFRESH,240,291,50,14
     DEFPUSHBUTTON   "Close",IDOK,294,291,50,14
+    LTEXT           "Status",IDC_STATE,4,294,20,8
+END
+
+IDD_CHOOSENEW DIALOGEX 0, 0, 270, 120
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Input Prompt"
+FONT 8, "MS Shell Dlg", 400, 0, 0x0
+BEGIN
+    LTEXT           "Input Prompt",IDC_TITLE,7,7,262,22
+    CONTROL         "Input Prompt",IDC_TEXT,"SysLink",WS_TABSTOP,7,33,259,23
+    CONTROL         "",IDC_SIZE_,"Static",SS_ETCHEDHORZ,0,90,271,1
+    DEFPUSHBUTTON   "&Ok",IDOK,158,98,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,212,98,50,14
+    COMBOBOX        IDC_INPUT,7,64,255,30,CBS_DROPDOWN | CBS_SORT | WS_VSCROLL | WS_TABSTOP
 END
 
 
@@ -1569,7 +1683,7 @@ BEGIN
         BOTTOMMARGIN, 253
     END
 
-    IDD_HIDDENPROCESSES, DIALOG
+    IDD_ZOMBIEPROCESSES, DIALOG
     BEGIN
         LEFTMARGIN, 7
         RIGHTMARGIN, 330
@@ -1815,15 +1929,12 @@ BEGIN
         LEFTMARGIN, 3
         RIGHTMARGIN, 298
         TOPMARGIN, 3
-        BOTTOMMARGIN, 277
     END
 
     IDD_MEMSTRINGSMINLEN, DIALOG
     BEGIN
         LEFTMARGIN, 3
-        RIGHTMARGIN, 298
         TOPMARGIN, 3
-        BOTTOMMARGIN, 277
     END
 
     IDD_OPTGRAPHS, DIALOG
@@ -2052,6 +2163,16 @@ BEGIN
         TOPMARGIN, 7
         BOTTOMMARGIN, 253
     END
+
+    IDD_MODIFIEDPAGES, DIALOG
+    BEGIN
+    END
+
+    IDD_CHOOSENEW, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        TOPMARGIN, 7
+    END
 END
 #endif    // APSTUDIO_INVOKED
 
@@ -2103,26 +2224,9 @@ END
 //
 
 IDB_SEARCH_ACTIVE_BMP   BITMAP                  "resources\\active_search.bmp"
+
 IDB_SEARCH_INACTIVE_BMP BITMAP                  "resources\\inactive_search.bmp"
 
-
-/////////////////////////////////////////////////////////////////////////////
-//
-// PNG
-//
-
-IDB_SEARCH_ACTIVE                PNG            "resources\\active_search.png"
-IDB_SEARCH_INACTIVE              PNG            "resources\\inactive_search.png"
-IDB_SEARCH_ACTIVE_SMALL          PNG            "resources\\active_search_small.png"
-IDB_SEARCH_INACTIVE_SMALL        PNG            "resources\\inactive_search_small.png"
-IDB_SEARCH_REGEX_MODERN_DARK     PNG            "resources\\regex_modern_dark.png"
-IDB_SEARCH_REGEX_MODERN_LIGHT    PNG            "resources\\regex_modern_light.png"
-IDB_SEARCH_CASE_MODERN_DARK      PNG            "resources\\case_sensitive_modern_dark.png"
-IDB_SEARCH_CASE_MODERN_LIGHT     PNG            "resources\\case_sensitive_modern_light.png"
-IDB_SEARCH_ACTIVE_MODERN_LIGHT   PNG            "resources\\search_stop_modern_light.png"
-IDB_SEARCH_ACTIVE_MODERN_DARK    PNG            "resources\\search_stop_modern_dark.png"
-IDB_SEARCH_INACTIVE_MODERN_LIGHT PNG            "resources\\search_modern_light.png"
-IDB_SEARCH_INACTIVE_MODERN_DARK  PNG            "resources\\search_modern_dark.png"
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -2131,9 +2235,7 @@ IDB_SEARCH_INACTIVE_MODERN_DARK  PNG            "resources\\search_modern_dark.p
 
 IDR_RT_MANIFEST         RT_MANIFEST             "SystemInformer.manifest"
 
-
-
-#endif    // Neutral resources
+#endif    // English (United States) resources
 /////////////////////////////////////////////////////////////////////////////
 
 

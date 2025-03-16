@@ -12,6 +12,7 @@
 #include <phapp.h>
 #include <appsup.h>
 #include <taskschd.h>
+#include <secwmi.h>
 
 DEFINE_GUID(CLSID_TaskScheduler, 0x0f87369f, 0xa4e5, 0x4cfc, 0xbd, 0x3e, 0x73, 0xe6, 0x15, 0x45, 0x72, 0xdd);
 DEFINE_GUID(IID_ITaskService, 0x2FABA4C7, 0x4DA9, 0x4013, 0x96, 0x97, 0x20, 0xCC, 0x3F, 0xD4, 0x0F, 0x85);
@@ -61,12 +62,12 @@ HRESULT PhCreateAdminTask(
     if (FAILED(status))
         goto CleanupExit;
 
-    taskNameString = SysAllocStringLen(TaskName->Buffer, (UINT32)TaskName->Length / sizeof(WCHAR));
-    taskFileNameString = SysAllocStringLen(FileName->Buffer, (UINT32)FileName->Length / sizeof(WCHAR));
-    taskFolderString = SysAllocStringLen(PhNtPathSeperatorString.Buffer, (UINT32)PhNtPathSeperatorString.Length / sizeof(WCHAR));
-    taskTimeLimitString = SysAllocStringLen(taskTimeLimit.Buffer, (UINT32)taskTimeLimit.Length / sizeof(WCHAR));
+    taskNameString = PhStringRefToBSTR(TaskName);
+    taskFileNameString = PhStringRefToBSTR(FileName);
+    taskFolderString = PhStringRefToBSTR(&PhNtPathSeperatorString);
+    taskTimeLimitString = PhStringRefToBSTR(&taskTimeLimit);
 #if (PH_ADMIN_TASK_FORWARD_COMMANDLINE_UNPRIVILEGED)
-    taskArgumentsString = SysAllocStringLen(taskArguments.Buffer, (UINT32)taskArguments.Length / sizeof(WCHAR));
+    taskArgumentsString = PhStringRefToBSTR(&taskArguments);
 #endif
 
     status = ITaskService_Connect(
@@ -160,6 +161,15 @@ HRESULT PhCreateAdminTask(
 
     if (FAILED(status))
         goto CleanupExit;
+
+#define TASK_RUNLEVEL_LUA 0
+#define TASK_RUNLEVEL_HIGHEST 1
+#define RUNLEVEL_ADMIN 2
+#define RUNLEVEL_MAX_NON_UIA 3
+#define RUNLEVEL_LUA_UIA 4
+#define RUNLEVEL_HIGHEST_UIA 5
+#define RUNLEVEL_ADMIN_UIA 6
+#define RUNLEVEL_MAX 7
 
     IPrincipal_put_RunLevel(taskPrincipal, TASK_RUNLEVEL_HIGHEST);
     IPrincipal_put_LogonType(taskPrincipal, TASK_LOGON_INTERACTIVE_TOKEN);
@@ -285,8 +295,8 @@ HRESULT PhDeleteAdminTask(
     if (FAILED(status))
         goto CleanupExit;
 
-    taskNameString = SysAllocStringLen(TaskName->Buffer, (UINT32)TaskName->Length / sizeof(WCHAR));
-    taskFolderString = SysAllocStringLen(PhNtPathSeperatorString.Buffer, (UINT32)PhNtPathSeperatorString.Length / sizeof(WCHAR));
+    taskNameString = PhStringRefToBSTR(TaskName);
+    taskFolderString = PhStringRefToBSTR(&PhNtPathSeperatorString);
 
     status = ITaskService_Connect(
         taskService,
@@ -352,8 +362,8 @@ HRESULT PhRunAsAdminTask(
     if (FAILED(status))
         goto CleanupExit;
 
-    taskNameString = SysAllocStringLen(TaskName->Buffer, (UINT32)TaskName->Length / sizeof(WCHAR));
-    taskFolderString = SysAllocStringLen(PhNtPathSeperatorString.Buffer, (UINT32)PhNtPathSeperatorString.Length / sizeof(WCHAR));
+    taskNameString = PhStringRefToBSTR(TaskName);
+    taskFolderString = PhStringRefToBSTR(&PhNtPathSeperatorString);
 
     status = ITaskService_Connect(
         taskService,
@@ -392,7 +402,7 @@ HRESULT PhRunAsAdminTask(
         if (NT_SUCCESS(PhGetProcessCommandLineStringRef(&commandline)))
         {
             V_VT(&params) = VT_BSTR;
-            V_BSTR(&params) = SysAllocStringLen(commandline.Buffer, (UINT32)commandline.Length / sizeof(WCHAR));
+            V_BSTR(&params) = PhStringRefToBSTR(&commandline);
         }
     }
 #endif
@@ -435,8 +445,7 @@ NTSTATUS PhRunAsAdminTaskUIAccess(
     NTSTATUS status;
     BOOLEAN tokenIsUIAccess;
     ULONG sessionId;
-    ULONG processId;
-    HWND windowHandle;
+    CLIENT_ID desktopId;
     PPH_STRING fileName;
 
     if (!PhGetOwnTokenAttributes().Elevated)
@@ -455,13 +464,12 @@ NTSTATUS PhRunAsAdminTaskUIAccess(
     if (PhIsNullOrEmptyString(fileName))
         return STATUS_UNSUCCESSFUL;
 
-    // Query the user desktop from the current shell window.
+    // Query the process from the current desktop.
 
-    if (!(windowHandle = GetShellWindow()))
-        return STATUS_UNSUCCESSFUL;
+    status = PhGetWindowClientId(PhGetShellWindow(), &desktopId);
 
-    if (!GetWindowThreadProcessId(windowHandle, &processId))
-        return STATUS_UNSUCCESSFUL;
+    if (!NT_SUCCESS(status))
+        return status;
 
     // Query the session from the current process.
 
@@ -472,11 +480,11 @@ NTSTATUS PhRunAsAdminTaskUIAccess(
 
     status = PhExecuteRunAsCommand3(
         NULL,
-        fileName->Buffer,
+        PhGetString(fileName),
         NULL,
         NULL,
         LOGON32_LOGON_INTERACTIVE,
-        UlongToHandle(processId),
+        desktopId.UniqueProcess,
         sessionId,
         NULL,
         TRUE,

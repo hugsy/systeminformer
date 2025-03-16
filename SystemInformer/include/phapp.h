@@ -31,10 +31,10 @@
 #include <phnet.h>
 
 #include "../resource.h"
+
 #include <phfwddef.h>
 #include <appsup.h>
-
-#include <minidumpapiset.h>
+#include <searchbox.h>
 
 // main
 
@@ -63,6 +63,7 @@ typedef struct _PH_STARTUP_PARAMETERS
         ULONG Flags;
     };
 
+    PPH_STRING SettingsFileName;
     PPH_STRING RunAsServiceMode;
 
     HWND WindowHandle;
@@ -74,7 +75,7 @@ typedef struct _PH_STARTUP_PARAMETERS
     PPH_LIST PluginParameters;
     PPH_STRING SelectTab;
     PPH_STRING SysInfo;
-    PPH_STRING Channel;
+    ULONG UpdateChannel;
 } PH_STARTUP_PARAMETERS, *PPH_STARTUP_PARAMETERS;
 
 extern BOOLEAN PhPluginsEnabled;
@@ -137,11 +138,11 @@ VOID PhInitializeCallbacks(
     );
 
 BOOLEAN PhIsPluginDisabled(
-    _In_ PPH_STRINGREF BaseName
+    _In_ PCPH_STRINGREF BaseName
     );
 
 VOID PhSetPluginDisabled(
-    _In_ PPH_STRINGREF BaseName,
+    _In_ PCPH_STRINGREF BaseName,
     _In_ BOOLEAN Disable
     );
 
@@ -379,7 +380,7 @@ NTSTATUS
 NTAPI
 PhSetProcessItemThrottlingState(
     _In_ PPH_PROCESS_ITEM ProcessItem,
-    _In_ BOOLEAN ThrottlingState
+    _In_ BOOLEAN ClearThrottlingState
     );
 // end_phapppub
 
@@ -417,15 +418,31 @@ BOOLEAN
 NTAPI
 PhaChoiceDialog(
     _In_ HWND ParentWindowHandle,
-    _In_ PWSTR Title,
-    _In_ PWSTR Message,
-    _In_opt_ PWSTR *Choices,
+    _In_ PCWSTR Title,
+    _In_ PCWSTR Message,
+    _In_opt_ PCWSTR *Choices,
     _In_opt_ ULONG NumberOfChoices,
-    _In_opt_ PWSTR Option,
+    _In_opt_ PCWSTR Option,
     _In_ ULONG Flags,
     _Inout_ PPH_STRING *SelectedChoice,
     _Inout_opt_ PBOOLEAN SelectedOption,
-    _In_opt_ PWSTR SavedChoicesSettingName
+    _In_opt_ PCWSTR SavedChoicesSettingName
+    );
+
+PHAPPAPI
+BOOLEAN
+NTAPI
+PhChoiceDialog(
+    _In_ HWND ParentWindowHandle,
+    _In_ PCWSTR Title,
+    _In_ PCWSTR Message,
+    _In_opt_ PCWSTR* Choices,
+    _In_opt_ ULONG NumberOfChoices,
+    _In_opt_ PCWSTR Option,
+    _In_ ULONG Flags,
+    _Inout_ PPH_STRING* SelectedChoice,
+    _Inout_opt_ PBOOLEAN SelectedOption,
+    _In_opt_ PCWSTR SavedChoicesSettingName
     );
 // end_phapppub
 
@@ -438,7 +455,7 @@ BOOLEAN
 NTAPI
 PhShowChooseProcessDialog(
     _In_ HWND ParentWindowHandle,
-    _In_ PWSTR Message,
+    _In_ PCWSTR Message,
     _Out_ PHANDLE ProcessId
     );
 // end_phapppub
@@ -446,7 +463,7 @@ PhShowChooseProcessDialog(
 // findobj
 
 VOID PhShowFindObjectsDialog(
-    VOID
+    _In_ HWND ParentWindowHandle
     );
 
 // gdihndl
@@ -463,9 +480,14 @@ VOID PhShowProcessHeapsDialog(
     _In_ PPH_PROCESS_ITEM ProcessItem
     );
 
+VOID PhShowProcessLocksDialog(
+    _In_ HWND ParentWindowHandle,
+    _In_ PPH_PROCESS_ITEM ProcessItem
+    );
+
 // hidnproc
 
-VOID PhShowHiddenProcessesDialog(
+VOID PhShowZombieProcessesDialog(
     VOID
     );
 
@@ -488,7 +510,7 @@ VOID PhShowHandleStatisticsDialog(
 
 VOID PhShowInformationDialog(
     _In_ HWND ParentWindowHandle,
-    _In_ PWSTR String,
+    _In_ PCWSTR String,
     _Reserved_ ULONG Flags
     );
 
@@ -498,7 +520,7 @@ VOID PhShowJobProperties(
     _In_ HWND ParentWindowHandle,
     _In_ PPH_OPEN_OBJECT OpenObject,
     _In_opt_ PVOID Context,
-    _In_opt_ PWSTR Title
+    _In_opt_ PCWSTR Title
     );
 
 HPROPSHEETPAGE PhCreateJobPage(
@@ -576,9 +598,23 @@ VOID PhShowMemoryProtectDialog(
     _In_ PPH_MEMORY_ITEM MemoryItem
     );
 
+// memrslt
+
+VOID PhShowMemoryResultsDialog(
+    _In_ HANDLE ProcessId,
+    _In_ PPH_LIST Results
+    );
+
 // memsrch
 
 VOID PhShowMemoryStringDialog(
+    _In_ HWND ParentWindowHandle,
+    _In_ PPH_PROCESS_ITEM ProcessItem
+    );
+
+// msmsrcht
+
+VOID PhShowMemoryStringTreeDialog(
     _In_ HWND ParentWindowHandle,
     _In_ PPH_PROCESS_ITEM ProcessItem
     );
@@ -662,16 +698,16 @@ PhShowProcessRecordDialog(
 typedef struct _PH_RUNAS_SERVICE_PARAMETERS
 {
     ULONG ProcessId;
-    PWSTR UserName;
-    PWSTR Password;
+    PCWSTR UserName;
+    PCWSTR Password;
     ULONG LogonType;
     ULONG SessionId;
-    PWSTR CurrentDirectory;
-    PWSTR CommandLine;
-    PWSTR FileName;
-    PWSTR DesktopName;
+    PCWSTR CurrentDirectory;
+    PCWSTR CommandLine;
+    PCWSTR FileName;
+    PCWSTR DesktopName;
     BOOLEAN UseLinkedToken;
-    PWSTR ServiceName;
+    PCWSTR ServiceName;
     BOOLEAN CreateSuspendedProcess;
     HWND WindowHandle;
     BOOLEAN CreateUIAccessProcess;
@@ -705,13 +741,13 @@ NTSTATUS
 NTAPI
 PhExecuteRunAsCommand2(
     _In_ HWND hWnd,
-    _In_ PWSTR Program,
-    _In_opt_ PWSTR UserName,
-    _In_opt_ PWSTR Password,
+    _In_ PCWSTR Program,
+    _In_opt_ PCWSTR UserName,
+    _In_opt_ PCWSTR Password,
     _In_opt_ ULONG LogonType,
     _In_opt_ HANDLE ProcessIdWithToken,
     _In_opt_ ULONG SessionId,
-    _In_opt_ PWSTR DesktopName,
+    _In_opt_ PCWSTR DesktopName,
     _In_ BOOLEAN UseLinkedToken
     );
 // end_phapppub
@@ -721,13 +757,13 @@ NTSTATUS
 NTAPI
 PhExecuteRunAsCommand3(
     _In_ HWND hWnd,
-    _In_ PWSTR Program,
-    _In_opt_ PWSTR UserName,
-    _In_opt_ PWSTR Password,
+    _In_ PCWSTR Program,
+    _In_opt_ PCWSTR UserName,
+    _In_opt_ PCWSTR Password,
     _In_opt_ ULONG LogonType,
     _In_opt_ HANDLE ProcessIdWithToken,
     _In_opt_ ULONG SessionId,
-    _In_opt_ PWSTR DesktopName,
+    _In_opt_ PCWSTR DesktopName,
     _In_ BOOLEAN UseLinkedToken,
     _In_ BOOLEAN CreateSuspendedProcess,
     _In_ BOOLEAN CreateUIAccessProcess
@@ -744,7 +780,10 @@ NTSTATUS PhInvokeRunAsService(
 // searchbox
 
 // begin_phapppub
+
+_Function_class_(PH_SEARCHCONTROL_CALLBACK)
 typedef
+_Must_inspect_result_
 VOID
 NTAPI
 PH_SEARCHCONTROL_CALLBACK(
@@ -759,50 +798,9 @@ NTAPI
 PhCreateSearchControl(
     _In_ HWND ParentWindowHandle,
     _In_ HWND WindowHandle,
-    _In_opt_ PWSTR BannerText,
+    _In_opt_ PCWSTR BannerText,
     _In_ PPH_SEARCHCONTROL_CALLBACK Callback,
     _In_opt_ PVOID Context
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhSearchControlMatch(
-    _In_ ULONG_PTR MatchHandle,
-    _In_ PPH_STRINGREF Text
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhSearchControlMatchZ(
-    _In_ ULONG_PTR MatchHandle,
-    _In_ PWSTR Text
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhSearchControlMatchLongHintZ(
-    _In_ ULONG_PTR MatchHandle,
-    _In_ PWSTR Text
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhSearchControlMatchPointer(
-    _In_ ULONG_PTR MatchHandle,
-    _In_ PVOID Pointer
-    );
-
-PHAPPAPI
-BOOLEAN
-NTAPI
-PhSearchControlMatchPointerRange(
-    _In_ ULONG_PTR MatchHandle,
-    _In_ PVOID Pointer,
-    _In_ SIZE_T Size
     );
 // end_phapppub
 
@@ -877,7 +875,7 @@ PPH_STRING PhGetGroupAttributesString(
     _In_ BOOLEAN Restricted
     );
 
-PWSTR PhGetPrivilegeAttributesString(
+PCWSTR PhGetPrivilegeAttributesString(
     _In_ ULONG Attributes
     );
 
@@ -885,15 +883,16 @@ _Success_(return)
 BOOLEAN PhGetElevationTypeString(
     _In_ BOOLEAN IsElevated,
     _In_ TOKEN_ELEVATION_TYPE ElevationType,
-    _Out_ PPH_STRINGREF* ElevationTypeString
+    _Out_ PCPH_STRINGREF* ElevationTypeString
     );
 
 VOID PhShowTokenProperties(
     _In_ HWND ParentWindowHandle,
     _In_ PPH_OPEN_OBJECT OpenObject,
+    _In_ PPH_CLOSE_OBJECT CloseObject,
     _In_ HANDLE ProcessId,
-    _In_opt_ PVOID Context,
-    _In_opt_ PWSTR Title
+    _In_ PVOID Context,
+    _In_opt_ PCWSTR Title
     );
 
 INT CALLBACK PhpTokenSheetProc(
@@ -904,15 +903,10 @@ INT CALLBACK PhpTokenSheetProc(
 
 HPROPSHEETPAGE PhCreateTokenPage(
     _In_ PPH_OPEN_OBJECT OpenObject,
+    _In_ PPH_CLOSE_OBJECT CloseObject,
     _In_ HANDLE ProcessId,
     _In_opt_ PVOID Context,
     _In_opt_ DLGPROC HookProc
-    );
-
-// prpggen
-
-PPH_STRING PhGetProcessItemProtectionText(
-    _In_ PPH_PROCESS_ITEM ProcessItem
     );
 
 #endif

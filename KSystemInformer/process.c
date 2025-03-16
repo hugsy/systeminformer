@@ -14,7 +14,7 @@
 
 #include <trace.h>
 
-PAGED_FILE();
+KPH_PAGED_FILE();
 
 /**
  * \brief Opens a process.
@@ -43,7 +43,7 @@ NTSTATUS KphOpenProcess(
     PEPROCESS process;
     HANDLE processHandle;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     process = NULL;
 
@@ -190,7 +190,7 @@ NTSTATUS KphOpenProcessToken(
     PACCESS_TOKEN primaryToken;
     HANDLE tokenHandle;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     process = NULL;
     primaryToken = NULL;
@@ -328,7 +328,7 @@ NTSTATUS KphOpenProcessJob(
     PEJOB job;
     HANDLE jobHandle;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     process = NULL;
 
@@ -454,7 +454,7 @@ NTSTATUS KphTerminateProcess(
     PEPROCESS process;
     HANDLE processHandle;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     process = NULL;
     processHandle = NULL;
@@ -573,7 +573,7 @@ NTSTATUS KphQueryInformationProcess(
     PKPH_PROCESS_CONTEXT process;
     ULONG returnLength;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     dyn = NULL;
     processObject = NULL;
@@ -652,6 +652,7 @@ NTSTATUS KphQueryInformationProcess(
 
                 info->ProcessState = KphGetProcessState(process);
 
+                info->ProcessStartKey = KphGetProcessStartKey(processObject);
                 info->CreatorClientId.UniqueProcess = process->CreatorClientId.UniqueProcess;
                 info->CreatorClientId.UniqueThread = process->CreatorClientId.UniqueThread;
 
@@ -990,7 +991,7 @@ NTSTATUS KphSetInformationProcess(
     HANDLE processHandle;
     PROCESSINFOCLASS processInformationClass;
 
-    PAGED_CODE_PASSIVE();
+    KPH_PAGED_CODE_PASSIVE();
 
     processInformation = NULL;
     process = NULL;
@@ -1004,24 +1005,17 @@ NTSTATUS KphSetInformationProcess(
 
     if (AccessMode != KernelMode)
     {
-        if (ProcessInformationLength <= ARRAYSIZE(stackBuffer))
+        processInformation = KphAllocatePagedA(ProcessInformationLength,
+                                               KPH_TAG_PROCESS_INFO,
+                                               stackBuffer);
+        if (!processInformation)
         {
-            RtlZeroMemory(stackBuffer, ARRAYSIZE(stackBuffer));
-            processInformation = stackBuffer;
-        }
-        else
-        {
-            processInformation = KphAllocatePaged(ProcessInformationLength,
-                                                  KPH_TAG_PROCESS_INFO);
-            if (!processInformation)
-            {
-                KphTracePrint(TRACE_LEVEL_VERBOSE,
-                              GENERAL,
-                              "Failed to allocate process info buffer.");
+            KphTracePrint(TRACE_LEVEL_VERBOSE,
+                          GENERAL,
+                          "Failed to allocate process info buffer.");
 
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto Exit;
-            }
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Exit;
         }
 
         __try
@@ -1207,11 +1201,9 @@ Exit:
         ObDereferenceObject(process);
     }
 
-    if (processInformation &&
-        (processInformation != ProcessInformation) &&
-        (processInformation != stackBuffer))
+    if (processInformation && (processInformation != ProcessInformation))
     {
-        KphFree(processInformation, KPH_TAG_PROCESS_INFO);
+        KphFreeA(processInformation, KPH_TAG_PROCESS_INFO, stackBuffer);
     }
 
     return status;
